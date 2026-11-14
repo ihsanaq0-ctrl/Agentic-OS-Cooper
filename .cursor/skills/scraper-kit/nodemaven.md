@@ -171,7 +171,7 @@ const DOCS = {
 };
 
 const LOCATION_COUNTRY = {
-  india: "in", "united states": "us", usa: "us",
+  india: "in", pakistan: "pk", "united states": "us", usa: "us",
   "united kingdom": "gb", uk: "gb", canada: "ca", australia: "au",
   germany: "de", france: "fr", brazil: "br", singapore: "sg",
 };

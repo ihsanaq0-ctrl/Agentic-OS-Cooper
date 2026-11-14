@@ -6,8 +6,8 @@ export const CATEGORIES = [
   "Entertainment", "Health", "Salary", "Investment", "Transfer", "Other",
 ];
 
-// Currency amount anywhere in the text (₹, Rs, INR, $).
-const AMOUNT_RE = /(?:₹|rs\.?|inr|usd|\$)\s?([\d,]+(?:\.\d{1,2})?)/i;
+// Currency amount anywhere in the text (Rs, PKR, USD, $).
+const AMOUNT_RE = /(?:rs\.?|pkr|usd|\$)\s?([\d,]+(?:\.\d{1,2})?)/i;
 const EXPENSE_WORDS = /\b(debited|spent|paid|purchase|payment of|charged|withdrawn|order)\b/i;
 const INCOME_WORDS = /\b(credited|received|refund|payout|salary|deposited|cashback)\b/i;
 
@@ -66,7 +66,7 @@ export async function extractTransaction(msg) {
   return {
     type,
     amount,
-    currency: (parsed.currency || "INR").toUpperCase().slice(0, 6),
+    currency: (parsed.currency || "PKR").toUpperCase().slice(0, 6),
     category,
     merchant: parsed.merchant || msg.from_name || null,
     occurred_at: /^\d{4}-\d{2}-\d{2}$/.test(parsed.occurred_at) ? parsed.occurred_at : emailDate,

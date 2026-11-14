@@ -78,9 +78,62 @@ h1 { margin: 0; font-size: 1.4rem; font-weight: 700; letter-spacing: -0.02em; }
   background: var(--accent2); margin-right: 7px; box-shadow: 0 0 8px var(--accent2); vertical-align: middle;
 }
 
+@media (max-width: 768px) {
+  .app { padding: 14px 12px 36px; }
+  header { flex-direction: column; align-items: stretch; gap: 12px; margin-bottom: 14px; }
+  .header-actions {
+    display: flex;
+    gap: 8px;
+    overflow-x: auto;
+    padding-bottom: 6px;
+    flex-wrap: nowrap;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+  }
+  .header-actions::-webkit-scrollbar { display: none; }
+  .header-btn, .status-pill {
+    flex-shrink: 0;
+    white-space: nowrap;
+    font-size: 0.76rem;
+    padding: 7px 12px;
+  }
+  .logo { gap: 10px; }
+  .logo-icon { width: 38px; height: 38px; font-size: 18px; }
+  h1 { font-size: 1.15rem; }
+  .subtitle { font-size: 0.74rem; }
+}
+
 /* Tabs nav */
-.tabs-nav { display: flex; gap: 4px; padding: 5px; margin-bottom: 24px; background: var(--surface-raised); border: 1px solid var(--border); border-radius: 999px; width: fit-content; }
-.navtab { padding: 9px 20px; border: none; background: transparent; color: var(--muted); font-family: inherit; font-size: 0.84rem; font-weight: 600; cursor: pointer; border-radius: 999px; transition: var(--transition); }
+.tabs-nav {
+  display: flex;
+  gap: 6px;
+  padding: 6px;
+  margin-bottom: 24px;
+  background: var(--surface-raised);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  width: fit-content;
+  max-width: 100%;
+  box-sizing: border-box;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+}
+.tabs-nav::-webkit-scrollbar { display: none; }
+.navtab {
+  padding: 9px 18px;
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  font-family: inherit;
+  font-size: 0.84rem;
+  font-weight: 600;
+  cursor: pointer;
+  border-radius: 999px;
+  white-space: nowrap;
+  flex-shrink: 0;
+  transition: var(--transition);
+}
 .navtab.active { background: var(--accent-soft); color: var(--accent-hover); }
 .navtab:hover:not(.active) { color: var(--text); }
 
@@ -268,15 +321,45 @@ body.hud-mode .app { max-width: 1640px; }
   .hud-grid {
     grid-template-columns: 1fr 1fr;
     grid-template-rows: none;
-    height: auto; min-height: 0;
+    height: auto !important;
+    min-height: 0 !important;
     grid-template-areas:
       "globe   globe"
       "expenses tasks"
       "mail    content";
+    gap: 14px;
+  }
+  .hud-panel {
+    min-height: 280px;
+    max-height: 480px;
   }
 }
-@media (max-width: 720px) {
-  .hud-grid { grid-template-columns: 1fr; grid-template-rows: none; grid-template-areas: "globe" "expenses" "tasks" "mail" "content"; }
+@media (max-width: 768px) {
+  .hud-grid {
+    grid-template-columns: 1fr;
+    grid-template-rows: none;
+    height: auto !important;
+    min-height: 0 !important;
+    grid-template-areas:
+      "globe"
+      "expenses"
+      "tasks"
+      "mail"
+      "content";
+    gap: 12px;
+  }
+  .hud-panel {
+    min-height: 240px;
+    max-height: 420px;
+    padding: 14px;
+  }
+  .globe-stage {
+    min-height: 320px;
+    padding: 8px;
+  }
+  .globe-canvas-wrap {
+    min-height: 220px;
+  }
 }
 
 .hud-panel {
@@ -550,11 +633,1151 @@ html, body { min-height: 100%; }
   #view-schedule.view.active > .card-main { max-height: calc(100dvh - 150px); overflow-y: auto; }
 }
 
-@media (min-width: 721px) {
-  /* HUD fills the screen; panels scroll internally instead of the page */
+@media (min-width: 1200px) and (min-height: 700px) {
+  /* HUD fills the screen only on spacious desktop viewports */
   body.hud-mode { overflow: hidden; }
   body.hud-mode #view-home.active { display: flex; }
   body.hud-mode .hud-grid { flex: 1; min-height: 0; grid-template-rows: minmax(0, 1fr) minmax(0, 1fr); }
   body.hud-mode .hud-panel { min-height: 0; }
   body.hud-mode .globe-stage { min-height: 0; }
+}
+
+@media (max-width: 1199px), (max-height: 699px) {
+  /* On laptops with scaling, tablets, split screen, small height or mobile: allow natural vertical scrolling */
+  body.hud-mode { overflow-y: auto !important; height: auto !important; }
+  body.hud-mode .hud-grid { height: auto !important; min-height: 0 !important; }
+  body.hud-mode #view-home.active { display: block !important; height: auto !important; }
+  .hud-panel { min-height: 280px; }
+}
+
+/* ── System Mode Button ────────────────────────────────────────── */
+.sys-mode-btn {
+  border-color: rgba(255, 255, 255, 0.15);
+  color: #94a3b8;
+  transition: all 0.2s ease;
+}
+.sys-mode-btn.active {
+  background: rgba(14, 165, 233, 0.15);
+  border-color: #0ea5e9;
+  color: #38bdf8;
+  box-shadow: 0 0 12px rgba(14, 165, 233, 0.35);
+}
+
+/* ── HITL Permission Request Card ──────────────────────────────── */
+.permission-card {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: min(380px, 90%);
+  background: #0f172a;
+  border: 1px solid #0ea5e9;
+  border-radius: 12px;
+  padding: 18px 20px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.7), 0 0 20px rgba(14, 165, 233, 0.25);
+  z-index: 50;
+  animation: permPop 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+}
+@keyframes permPop {
+  from { opacity: 0; transform: translate(-50%, -46%) scale(0.95); }
+  to { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+}
+.perm-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  font-weight: 600;
+  color: #38bdf8;
+  margin-bottom: 8px;
+}
+.perm-body {
+  font-size: 13px;
+  color: #e2e8f0;
+  line-height: 1.45;
+  margin-bottom: 16px;
+  padding: 8px 12px;
+  background: rgba(15, 23, 42, 0.8);
+  border-radius: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+.perm-actions {
+  display: flex;
+  gap: 10px;
+  justify-content: flex-end;
+}
+.perm-approve {
+  background: #0ea5e9;
+  border-color: #0ea5e9;
+  color: #fff;
+  font-weight: 600;
+}
+.perm-approve:hover {
+  background: #0284c7;
+}
+.perm-deny {
+  background: transparent;
+  color: #94a3b8;
+}
+.perm-deny:hover {
+  background: rgba(239, 68, 68, 0.15);
+  color: #f87171;
+  border-color: #ef4444;
+}
+
+/* ── Proactive Autonomous Briefing Banner ──────────────────────── */
+.briefing-banner {
+  width: 100%;
+  max-width: 480px;
+  margin: 0 auto 16px;
+  background: linear-gradient(135deg, rgba(14, 165, 233, 0.12), rgba(112, 0, 255, 0.08));
+  border: 1px solid rgba(0, 240, 255, 0.35);
+  border-radius: 12px;
+  padding: 14px 16px;
+  backdrop-filter: blur(12px);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.1);
+  animation: bannerSlideDown 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+  position: relative;
+  z-index: 10;
+}
+@keyframes bannerSlideDown {
+  from { opacity: 0; transform: translateY(-14px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.briefing-banner-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+.briefing-tag {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: #38bdf8;
+  letter-spacing: 0.5px;
+}
+.pulse-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #00f0ff;
+  box-shadow: 0 0 12px #00f0ff;
+  animation: dotPulse 1.8s infinite;
+}
+@keyframes dotPulse {
+  0% { transform: scale(0.95); opacity: 0.8; }
+  50% { transform: scale(1.3); opacity: 1; }
+  100% { transform: scale(0.95); opacity: 0.8; }
+}
+.briefing-dismiss {
+  background: transparent;
+  border: none;
+  color: #64748b;
+  cursor: pointer;
+  font-size: 14px;
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+.briefing-dismiss:hover { color: #f1f5f9; background: rgba(255, 255, 255, 0.1); }
+.briefing-banner-body {
+  font-size: 13px;
+  line-height: 1.5;
+  color: #cbd5e1;
+  margin-bottom: 12px;
+  max-height: 80px;
+  overflow-y: auto;
+}
+.briefing-banner-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.briefing-listen-btn {
+  background: linear-gradient(135deg, #0ea5e9, #6366f1);
+  border: none;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.briefing-listen-btn:hover {
+  background: linear-gradient(135deg, #38bdf8, #818cf8);
+}
+
+/* ── Quick Action Chips ────────────────────────────────────────── */
+.quick-chips {
+  display: flex;
+  gap: 6px;
+  justify-content: center;
+  flex-wrap: wrap;
+  margin-top: 10px;
+}
+.chip-btn {
+  background: rgba(15, 23, 42, 0.7);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  color: #94a3b8;
+  font-size: 11px;
+  font-weight: 500;
+  padding: 4px 10px;
+  border-radius: 20px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+.chip-btn:hover {
+  background: rgba(0, 240, 255, 0.12);
+  border-color: #00f0ff;
+  color: #38bdf8;
+  transform: translateY(-1px);
+}
+
+/* ── Bank Statement Dropzone ───────────────────────────────────── */
+.statement-dropzone {
+  margin: 12px 0;
+  animation: fadeIn 0.3s ease;
+}
+.dropzone-box {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 16px;
+  background: rgba(15, 23, 42, 0.6);
+  border: 2px dashed rgba(56, 189, 248, 0.4);
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.25s ease;
+}
+.dropzone-box:hover, .dropzone-box.drag-over {
+  background: rgba(14, 165, 233, 0.1);
+  border-color: #00f0ff;
+  box-shadow: 0 0 16px rgba(0, 240, 255, 0.2);
+}
+.drop-icon { font-size: 24px; }
+.drop-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.drop-text b { font-size: 12px; color: #f1f5f9; }
+.drop-text span { font-size: 11px; color: #64748b; }
+.dropzone-msg {
+  font-size: 12px;
+  margin-top: 6px;
+  padding: 6px 10px;
+  border-radius: 4px;
+}
+.dropzone-msg.success { background: rgba(34, 197, 94, 0.15); color: #4ade80; border: 1px solid #22c55e; }
+.dropzone-msg.error { background: rgba(239, 68, 68, 0.15); color: #f87171; border: 1px solid #ef4444; }
+
+/* ── Spending Velocity & Burn Rate Pill ────────────────────────── */
+.burn-pill {
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 12px;
+  background: rgba(15, 23, 42, 0.8);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  color: #94a3b8;
+  margin-left: auto;
+}
+.burn-pill.low { color: #4ade80; border-color: rgba(34, 197, 94, 0.4); }
+.burn-pill.high { color: #f87171; border-color: rgba(239, 68, 68, 0.4); animation: pulseAlert 2s infinite; }
+
+/* ── Preset Sources Chips ──────────────────────────────────────── */
+.preset-sources {
+  margin-top: 10px;
+}
+.preset-label {
+  font-size: 11px;
+  color: #64748b;
+  display: block;
+  margin-bottom: 4px;
+}
+.preset-btns {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.preset-btn {
+  background: rgba(15, 23, 42, 0.8);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  color: #cbd5e1;
+  font-size: 11px;
+  padding: 4px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+.preset-btn:hover {
+  background: rgba(99, 102, 241, 0.2);
+  border-color: #818cf8;
+  color: #a5b4fc;
+}
+
+/* ── Carousel Preview Modal ────────────────────────────────────── */
+.carousel-preview-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  max-height: 380px;
+  overflow-y: auto;
+  margin-top: 12px;
+  padding-right: 4px;
+}
+.carousel-slide-item {
+  background: #0f172a;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-left: 4px solid #00f0ff;
+  border-radius: 6px;
+  padding: 12px 14px;
+}
+.carousel-slide-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 11px;
+  color: #38bdf8;
+  margin-bottom: 6px;
+}
+.carousel-slide-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: #f8fafc;
+  margin-bottom: 4px;
+}
+.carousel-slide-body {
+  font-size: 12px;
+  color: #94a3b8;
+  line-height: 1.45;
+}
+.carousel-slide-callout {
+  margin-top: 8px;
+  padding: 6px 10px;
+  background: rgba(0, 240, 255, 0.08);
+  border-radius: 4px;
+  font-size: 11px;
+  color: #7dd3fc;
+}
+
+/* ── STARK-TECH BIOMETRIC LOCK SCREEN ─────────────────── */
+.lock-screen {
+  position: fixed;
+  inset: 0;
+  z-index: 99999;
+  background: radial-gradient(circle at center, rgba(10, 19, 36, 0.96) 0%, rgba(4, 7, 15, 0.99) 100%);
+  backdrop-filter: blur(24px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  transition: opacity 0.5s ease, visibility 0.5s ease;
+}
+
+.lock-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  max-width: 440px;
+  width: 90%;
+  padding: 36px 24px;
+}
+
+.lock-arc-scanner {
+  position: relative;
+  width: 220px;
+  height: 220px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 24px;
+}
+
+.scanner-ring-outer {
+  position: absolute;
+  inset: -8px;
+  border-radius: 50%;
+  border: 2px dashed rgba(0, 243, 255, 0.4);
+  animation: arcSpin 20s linear infinite;
+}
+
+.scanner-ring-inner {
+  position: absolute;
+  inset: 2px;
+  border-radius: 50%;
+  border: 2px solid transparent;
+  border-top-color: #00f3ff;
+  border-right-color: #00f3ff;
+  animation: arcSpinReverse 8s linear infinite;
+  box-shadow: 0 0 25px rgba(0, 243, 255, 0.35);
+}
+
+@keyframes arcSpin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+@keyframes arcSpinReverse {
+  from { transform: rotate(360deg); }
+  to { transform: rotate(0deg); }
+}
+
+.lock-cam-wrapper {
+  position: relative;
+  width: 180px;
+  height: 180px;
+  border-radius: 50%;
+  overflow: hidden;
+  background: #000;
+  border: 2px solid rgba(0, 243, 255, 0.8);
+  box-shadow: inset 0 0 20px rgba(0, 243, 255, 0.4);
+}
+
+.lock-cam-video {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transform: scaleX(-1); /* Mirror camera */
+}
+
+.lock-reticle {
+  position: absolute;
+  inset: 15px;
+  border-radius: 50%;
+  border: 1px dashed rgba(255, 255, 255, 0.3);
+  pointer-events: none;
+  transition: all 0.3s ease;
+}
+
+.lock-reticle::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: linear-gradient(90deg, transparent, #00f3ff, transparent);
+  animation: scanLine 2s ease-in-out infinite alternate;
+}
+
+@keyframes scanLine {
+  0% { top: 10%; opacity: 0.2; }
+  50% { opacity: 0.9; }
+  100% { top: 90%; opacity: 0.2; }
+}
+
+.reticle-tracking {
+  border-color: #00f3ff !important;
+  box-shadow: 0 0 20px rgba(0, 243, 255, 0.6);
+}
+
+.reticle-success {
+  border-color: #00ffc2 !important;
+  box-shadow: 0 0 35px #00ffc2;
+}
+
+.reticle-denied {
+  border-color: #ff4d4f !important;
+  box-shadow: 0 0 30px #ff4d4f;
+}
+
+.lock-title {
+  font-family: "JetBrains Mono", monospace;
+  font-size: 18px;
+  letter-spacing: 3px;
+  color: #00f3ff;
+  margin: 0 0 6px 0;
+  text-shadow: 0 0 12px rgba(0, 243, 255, 0.5);
+}
+
+.lock-status {
+  font-family: "JetBrains Mono", monospace;
+  font-size: 12px;
+  letter-spacing: 1px;
+  color: #94a3b8;
+  margin: 0 0 20px 0;
+  min-height: 36px;
+  line-height: 1.4;
+}
+
+.lock-actions {
+  display: flex;
+  gap: 12px;
+}
+
+.lock-pin-modal {
+  margin-top: 14px;
+  display: flex;
+  gap: 8px;
+}
+
+.lock-pin-modal input {
+  font-family: "JetBrains Mono", monospace;
+  font-size: 14px;
+  letter-spacing: 3px;
+  text-align: center;
+  width: 140px;
+}
+
+/* ── BIOMETRIC ADMIN ENROLLMENT ───────────────────────── */
+.enroll-cam-box {
+  background: rgba(0, 0, 0, 0.4);
+  border: 1px solid rgba(0, 243, 255, 0.2);
+  border-radius: 10px;
+  padding: 12px;
+}
+
+.enroll-cam-frame {
+  position: relative;
+  width: 100%;
+  max-width: 320px;
+  height: 240px;
+  margin: 0 auto;
+  border-radius: 8px;
+  overflow: hidden;
+  background: #000;
+  border: 1px solid rgba(0, 243, 255, 0.5);
+}
+
+.enroll-cam-frame video {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transform: scaleX(-1);
+}
+
+.enroll-reticle {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 130px;
+  height: 160px;
+  border-radius: 50%;
+  border: 2px dashed rgba(0, 243, 255, 0.7);
+  box-shadow: 0 0 15px rgba(0, 243, 255, 0.3);
+  pointer-events: none;
+}
+
+/* ── INVISIBLE GESTURE HUD FEEDBACK PILL ──────────────── */
+.gesture-hud-pill {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  z-index: 9999;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: rgba(8, 14, 28, 0.85);
+  border: 1px solid rgba(0, 243, 255, 0.4);
+  box-shadow: 0 0 20px rgba(0, 243, 255, 0.2);
+  backdrop-filter: blur(12px);
+  padding: 8px 16px;
+  border-radius: 30px;
+  font-family: "JetBrains Mono", monospace;
+  font-size: 11px;
+  letter-spacing: 1px;
+  color: #00f3ff;
+  opacity: 0;
+  transform: translateY(10px);
+  transition: opacity 0.25s ease, transform 0.25s ease;
+  pointer-events: none;
+}
+
+.gesture-hud-pill.pill-active {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.gesture-icon {
+  font-size: 14px;
+  animation: pulseGlow 1.2s infinite alternate;
+}
+
+@keyframes pulseGlow {
+  from { opacity: 0.6; filter: drop-shadow(0 0 2px #00f3ff); }
+  to { opacity: 1; filter: drop-shadow(0 0 8px #00f3ff); }
+}
+
+/* ── IRONHANDS 3D SPATIAL KINETIC TELEMETRY HUD ─────────── */
+.ironhands-hud-widget {
+  margin: 10px auto 0;
+  width: min(92%, 340px);
+  background: rgba(10, 18, 32, 0.78);
+  border: 1px solid rgba(0, 243, 255, 0.35);
+  box-shadow: 0 0 16px rgba(0, 243, 255, 0.12), inset 0 0 12px rgba(0, 243, 255, 0.05);
+  backdrop-filter: blur(10px);
+  border-radius: 8px;
+  padding: 8px 12px;
+  font-family: "JetBrains Mono", "Courier New", monospace;
+  position: relative;
+  overflow: hidden;
+  transition: border-color 0.25s ease;
+}
+
+.ironhands-hud-widget::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: -100%;
+  width: 50%;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, #00f3ff, transparent);
+  animation: ihScan 3s infinite linear;
+}
+
+@keyframes ihScan {
+  0% { left: -50%; }
+  100% { left: 150%; }
+}
+
+.ih-hud-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  border-bottom: 1px solid rgba(0, 243, 255, 0.15);
+  padding-bottom: 4px;
+  margin-bottom: 6px;
+}
+
+.ih-tag {
+  font-size: 9px;
+  letter-spacing: 0.15em;
+  color: #38bdf8;
+  font-weight: 700;
+}
+
+.ih-grip-badge {
+  font-size: 9px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  letter-spacing: 0.08em;
+  font-weight: 700;
+  background: rgba(148, 163, 184, 0.15);
+  color: #94a3b8;
+  border: 1px solid rgba(148, 163, 184, 0.3);
+  transition: all 0.2s ease;
+}
+
+.ih-grip-badge.grip-free {
+  background: rgba(148, 163, 184, 0.15);
+  color: #94a3b8;
+  border-color: rgba(148, 163, 184, 0.3);
+}
+
+.ih-grip-badge.grip-pinch {
+  background: rgba(0, 243, 255, 0.2);
+  color: #00f3ff;
+  border-color: #00f3ff;
+  box-shadow: 0 0 8px rgba(0, 243, 255, 0.4);
+}
+
+.ih-grip-badge.grip-fist_locked {
+  background: rgba(245, 158, 11, 0.25);
+  color: #f59e0b;
+  border-color: #f59e0b;
+  box-shadow: 0 0 10px rgba(245, 158, 11, 0.4);
+}
+
+.ih-grip-badge.grip-exploding {
+  background: rgba(239, 68, 68, 0.25);
+  color: #ef4444;
+  border-color: #ef4444;
+  box-shadow: 0 0 12px rgba(239, 68, 68, 0.5);
+  animation: pulseGlow 0.8s infinite alternate;
+}
+
+.ih-readouts {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px 8px;
+  font-size: 10px;
+}
+
+.ih-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  color: #64748b;
+}
+
+.ih-row span {
+  font-size: 9px;
+  letter-spacing: 0.05em;
+}
+
+.ih-row b {
+  color: #e2e8f0;
+  font-weight: 600;
+}
+
+.ih-quick-actions {
+  display: flex;
+  gap: 6px;
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.ih-btn {
+  flex: 1;
+  background: rgba(15, 23, 42, 0.6);
+  border: 1px solid rgba(0, 243, 255, 0.25);
+  color: #38bdf8;
+  font-family: inherit;
+  font-size: 9px;
+  padding: 3px 0;
+  border-radius: 4px;
+  cursor: pointer;
+  letter-spacing: 0.05em;
+  transition: all 0.2s ease;
+}
+
+.ih-btn:hover {
+  background: rgba(0, 243, 255, 0.15);
+  border-color: #00f3ff;
+  color: #fff;
+  box-shadow: 0 0 8px rgba(0, 243, 255, 0.3);
+}
+
+/* ── GOD'S EYE VIEW ORBITAL WAR ROOM MODAL ──────────────── */
+.godseye-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 10000;
+  background: rgba(4, 9, 20, 0.94);
+  backdrop-filter: blur(16px);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  font-family: "JetBrains Mono", "Courier New", monospace;
+  animation: gevFadeIn 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes gevFadeIn {
+  from { opacity: 0; transform: scale(0.98); }
+  to { opacity: 1; transform: scale(1); }
+}
+
+.godseye-hud-header {
+  height: 48px;
+  background: rgba(10, 18, 32, 0.9);
+  border-bottom: 1px solid rgba(0, 243, 255, 0.25);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0 20px;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
+  z-index: 20;
+}
+
+.godseye-head-left {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.godseye-title {
+  font-size: 13px;
+  letter-spacing: 0.15em;
+  font-weight: 700;
+  color: #00f3ff;
+  text-shadow: 0 0 8px rgba(0, 243, 255, 0.6);
+}
+
+.godseye-badge {
+  font-size: 9px;
+  padding: 2px 8px;
+  border-radius: 4px;
+  background: rgba(0, 255, 194, 0.15);
+  color: #00ffc2;
+  border: 1px solid rgba(0, 255, 194, 0.35);
+  letter-spacing: 0.08em;
+  font-weight: 600;
+}
+
+.godseye-head-right {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.godseye-btn {
+  background: rgba(15, 23, 42, 0.8);
+  border: 1px solid rgba(0, 243, 255, 0.3);
+  color: #38bdf8;
+  padding: 6px 12px;
+  border-radius: 6px;
+  font-size: 11px;
+  font-family: inherit;
+  cursor: pointer;
+  letter-spacing: 0.08em;
+  transition: all 0.2s ease;
+}
+
+.godseye-btn:hover {
+  background: rgba(0, 243, 255, 0.2);
+  border-color: #00f3ff;
+  color: #fff;
+  box-shadow: 0 0 10px rgba(0, 243, 255, 0.3);
+}
+
+.godseye-btn.close {
+  color: #f87171;
+  border-color: rgba(248, 113, 113, 0.3);
+}
+
+.godseye-btn.close:hover {
+  background: rgba(248, 113, 113, 0.2);
+  border-color: #f87171;
+  color: #fff;
+  box-shadow: 0 0 10px rgba(248, 113, 113, 0.4);
+}
+
+.godseye-orbit-bar {
+  display: flex;
+  gap: 8px;
+  padding: 8px 20px;
+  background: rgba(8, 14, 26, 0.85);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  overflow-x: auto;
+  z-index: 15;
+}
+
+.orbit-chip {
+  background: rgba(15, 23, 42, 0.6);
+  border: 1px solid rgba(0, 243, 255, 0.2);
+  color: #94a3b8;
+  padding: 4px 10px;
+  border-radius: 20px;
+  font-size: 10px;
+  font-family: inherit;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.orbit-chip:hover {
+  background: rgba(0, 243, 255, 0.15);
+  color: #00f3ff;
+  border-color: #00f3ff;
+}
+
+.godseye-viewport-wrap {
+  flex: 1;
+  position: relative;
+  background: #02050b;
+  overflow: hidden;
+}
+
+.godseye-frame {
+  width: 100%;
+  height: 100%;
+  border: none;
+  display: block;
+}
+
+.godseye-crosshair {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 80px;
+  height: 80px;
+  border: 1px dashed rgba(0, 243, 255, 0.35);
+  border-radius: 50%;
+  pointer-events: none;
+  z-index: 10;
+}
+
+.godseye-crosshair::before,
+.godseye-crosshair::after {
+  content: "";
+  position: absolute;
+  background: rgba(0, 243, 255, 0.5);
+}
+
+.godseye-crosshair::before {
+  top: 50%;
+  left: -12px;
+  right: -12px;
+  height: 1px;
+}
+
+.godseye-crosshair::after {
+  left: 50%;
+  top: -12px;
+  bottom: -12px;
+  width: 1px;
+}
+
+.godseye-scanlines {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(rgba(18, 16, 16, 0) 50%, rgba(0, 0, 0, 0.2) 50%);
+  background-size: 100% 3px;
+  pointer-events: none;
+  z-index: 5;
+  opacity: 0.4;
+}
+
+.godseye-optics-dock {
+  position: absolute;
+  bottom: 24px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgba(10, 18, 32, 0.88);
+  border: 1px solid rgba(0, 243, 255, 0.4);
+  box-shadow: 0 0 24px rgba(0, 243, 255, 0.2);
+  backdrop-filter: blur(12px);
+  padding: 8px 16px;
+  border-radius: 30px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  z-index: 30;
+}
+
+.optics-label {
+  font-size: 10px;
+  color: #38bdf8;
+  letter-spacing: 0.12em;
+  font-weight: 700;
+  margin-right: 4px;
+}
+
+.optics-btn {
+  background: rgba(15, 23, 42, 0.6);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  color: #94a3b8;
+  font-size: 11px;
+  font-family: inherit;
+  padding: 4px 10px;
+  border-radius: 16px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.optics-btn:hover {
+  background: rgba(0, 243, 255, 0.15);
+  color: #e2e8f0;
+  border-color: rgba(0, 243, 255, 0.4);
+}
+
+.optics-btn.active {
+  background: rgba(0, 243, 255, 0.25);
+  border-color: #00f3ff;
+  color: #00f3ff;
+  box-shadow: 0 0 10px rgba(0, 243, 255, 0.4);
+  font-weight: 600;
+}
+
+/* ── GOD'S EYE VIEW LOADER SCREEN ────────────────────────── */
+.godseye-loader-screen {
+  position: absolute;
+  inset: 0;
+  background: rgba(2, 6, 16, 0.95);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  z-index: 15;
+  transition: opacity 0.4s ease;
+}
+
+.godseye-loader-screen.hidden {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.gev-spinner {
+  width: 56px;
+  height: 56px;
+  border: 2px solid rgba(0, 243, 255, 0.15);
+  border-top-color: #00f3ff;
+  border-right-color: #38bdf8;
+  border-radius: 50%;
+  animation: gevSpin 1s linear infinite;
+  box-shadow: 0 0 20px rgba(0, 243, 255, 0.4);
+}
+
+@keyframes gevSpin {
+  to { transform: rotate(360deg); }
+}
+
+.gev-loader-text {
+  font-size: 13px;
+  font-family: "JetBrains Mono", monospace;
+  color: #00f3ff;
+  letter-spacing: 0.15em;
+  font-weight: 600;
+  text-shadow: 0 0 8px rgba(0, 243, 255, 0.6);
+}
+
+.gev-loader-sub {
+  font-size: 11px;
+  color: #64748b;
+  letter-spacing: 0.08em;
+}
+
+/* ── STARK-TECH AIR MOUSE & GESTURE SYSTEM CONTROLLER ──────── */
+.air-mouse-cursor {
+  position: fixed;
+  width: 24px;
+  height: 24px;
+  pointer-events: none;
+  z-index: 999999;
+  transform: translate(-50%, -50%);
+  transition: transform 0.04s ease-out, width 0.15s ease, height 0.15s ease;
+}
+
+.air-mouse-cursor::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border: 2px solid #00f3ff;
+  border-radius: 50%;
+  box-shadow: 0 0 12px rgba(0, 243, 255, 0.8), inset 0 0 8px rgba(0, 243, 255, 0.4);
+  animation: cursorPulse 2s infinite ease-in-out;
+}
+
+.air-mouse-cursor::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 4px;
+  height: 4px;
+  background: #fff;
+  border-radius: 50%;
+  transform: translate(-50%, -50%);
+  box-shadow: 0 0 6px #00f3ff;
+}
+
+.air-mouse-cursor.pinched {
+  width: 32px;
+  height: 32px;
+}
+
+.air-mouse-cursor.pinched::before {
+  border-color: #f59e0b;
+  box-shadow: 0 0 20px rgba(245, 158, 11, 0.9), inset 0 0 12px rgba(245, 158, 11, 0.6);
+}
+
+.air-mouse-cursor.pinched::after {
+  background: #f59e0b;
+  box-shadow: 0 0 10px #f59e0b;
+}
+
+@keyframes cursorPulse {
+  0%, 100% { opacity: 0.9; transform: scale(1); }
+  50% { opacity: 0.6; transform: scale(1.1); }
+}
+
+/* Floating Gesture PIP (Picture-In-Picture Camera HUD) */
+.gesture-pip-wrap {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  width: 220px;
+  height: 165px;
+  background: rgba(4, 9, 20, 0.88);
+  border: 1px solid rgba(0, 243, 255, 0.4);
+  border-radius: 12px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.7), 0 0 20px rgba(0, 243, 255, 0.2);
+  backdrop-filter: blur(12px);
+  z-index: 99999;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.gesture-pip-wrap.hidden {
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(20px) scale(0.95);
+}
+
+.gesture-pip-header {
+  height: 28px;
+  background: rgba(10, 18, 32, 0.9);
+  border-bottom: 1px solid rgba(0, 243, 255, 0.2);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 10px;
+  font-family: "JetBrains Mono", monospace;
+  font-size: 10px;
+  color: #00f3ff;
+  letter-spacing: 0.08em;
+}
+
+.gesture-pip-body {
+  flex: 1;
+  position: relative;
+  background: #000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.gesture-pip-canvas {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transform: scaleX(-1); /* Mirror camera */
+}
+
+.gesture-pip-tag {
+  position: absolute;
+  bottom: 6px;
+  left: 8px;
+  font-size: 9px;
+  font-family: "JetBrains Mono", monospace;
+  background: rgba(0, 0, 0, 0.7);
+  padding: 2px 6px;
+  border-radius: 4px;
+  color: #38bdf8;
+  border: 1px solid rgba(56, 189, 248, 0.3);
+}
+
+/* Gesture HUD Feedback Pill */
+.gesture-hud-pill {
+  position: fixed;
+  top: 72px;
+  left: 50%;
+  transform: translateX(-50%) translateY(-20px);
+  background: rgba(6, 14, 28, 0.92);
+  border: 1px solid #00f3ff;
+  box-shadow: 0 0 24px rgba(0, 243, 255, 0.4);
+  backdrop-filter: blur(12px);
+  padding: 8px 20px;
+  border-radius: 30px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  z-index: 100000;
+  pointer-events: none;
+  opacity: 0;
+  transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+  font-family: "JetBrains Mono", monospace;
+}
+
+.gesture-hud-pill.pill-active {
+  opacity: 1;
+  transform: translateX(-50%) translateY(0);
+}
+
+.gesture-hud-pill .gesture-icon {
+  font-size: 16px;
+}
+
+.gesture-hud-pill .gesture-label {
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  color: #00f3ff;
+  text-shadow: 0 0 8px rgba(0, 243, 255, 0.6);
 }

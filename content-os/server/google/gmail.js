@@ -73,10 +73,15 @@ async function mapLimit(items, limit, fn) {
  * @returns {Promise<Array<{id, thread_id, from_addr, from_name, subject, snippet, internal_date, labels, body}>>}
  */
 export async function fetchRecentMessages({ maxResults = 50, days = 7, query, withBody = false } = {}) {
-  const window = `newer_than:${Math.max(1, Number(days) || 7)}d`;
-  const q = query ? `${window} ${query}` : window;
+  let q = "";
+  if (query && (query.includes("newer_than:") || query.includes("after:"))) {
+    q = query;
+  } else {
+    const window = days ? `newer_than:${Math.max(1, Number(days) || 7)}d` : "";
+    q = [window, query].filter(Boolean).join(" ").trim();
+  }
   const api = gmail();
-  const list = await api.users.messages.list({ userId: "me", maxResults, q });
+  const list = await api.users.messages.list({ userId: "me", maxResults: Math.min(maxResults, 100), q: q || undefined });
   const ids = (list.data.messages ?? []).map((m) => m.id);
 
   const fetchOpts = withBody
@@ -104,5 +109,5 @@ export async function fetchRecentMessages({ maxResults = 50, days = 7, query, wi
       return null; // skip individual fetch failures
     }
   });
-  return results.filter(Boolean);
+  return results.filter(Boolean).sort((a, b) => (b.internal_date || 0) - (a.internal_date || 0));
 }

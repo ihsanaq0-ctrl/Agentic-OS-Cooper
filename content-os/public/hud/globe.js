@@ -121,4 +121,16 @@ function initGlobe(canvas, wrap) {
   window.addEventListener("assistant:level", (e) => {
     micLevel = Math.max(0, Math.min(1, e.detail?.level || 0));
   });
+
+  // IronHands & Jarvis-CV 3D manipulation interface
+  window.cooperGlobe = {
+    rotate(dx, dy) {
+      globe.rotation.y += dx * 0.03;
+      globe.rotation.x += dy * 0.03;
+    },
+    zoom(delta) {
+      camera.position.z = Math.max(1.6, Math.min(5.5, camera.position.z - delta * 3));
+    }
+  };
 }
+

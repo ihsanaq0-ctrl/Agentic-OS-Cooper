@@ -400,7 +400,7 @@ function escapeHtml(s) {
 
 function formatTime(iso) {
   if (!iso) return "—";
-  return new Date(iso).toLocaleString("en-IN", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
+  return new Date(iso).toLocaleString("en-PK", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
 }
 
 function statusBadge(status) {

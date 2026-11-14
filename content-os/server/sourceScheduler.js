@@ -1,6 +1,7 @@
-import { listEnabledSources, updateSource } from "./db.js";
+import { listEnabledSources, updateSource, getSetting } from "./db.js";
 import { enqueueSourceJob } from "./jobRunner.js";
 import { broadcastGlobal } from "./sse.js";
+import { generateBriefing } from "./ai/briefing.js";
 
 const TICK_MS = 60 * 1000;
 let timer = null;
@@ -68,6 +69,48 @@ function nextRunFor(source, from = new Date()) {
   return computeNextRun(from, source.interval_value, source.interval_unit);
 }
 
+const lastBriefingDate = { morning: null, evening: null };
+
+async function checkProactiveBriefing() {
+  try {
+    const tz = getSetting("timezone") || "Asia/Karachi";
+    const now = new Date();
+    const formatter = new Intl.DateTimeFormat("en-US", {
+      timeZone: tz,
+      hour12: false,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+    const parts = formatter.formatToParts(now);
+    const p = {};
+    for (const part of parts) p[part.type] = part.value;
+    const dateStr = `${p.year}-${p.month}-${p.day}`;
+    const hour = Number(p.hour);
+    const minute = Number(p.minute);
+
+    // Morning Briefing: between 8:00 AM and 8:15 AM
+    if (hour === 8 && minute <= 15 && lastBriefingDate.morning !== dateStr) {
+      lastBriefingDate.morning = dateStr;
+      console.log(`[Autonomous Briefing] Generating 8:00 AM briefing for ${dateStr} (${tz})...`);
+      const briefing = await generateBriefing("morning", { generateAudio: true });
+      broadcastGlobal({ type: "briefing:ready", briefing });
+    }
+
+    // Evening Briefing: between 8:00 PM (20:00) and 8:15 PM
+    if (hour === 20 && minute <= 15 && lastBriefingDate.evening !== dateStr) {
+      lastBriefingDate.evening = dateStr;
+      console.log(`[Autonomous Briefing] Generating 8:00 PM briefing for ${dateStr} (${tz})...`);
+      const briefing = await generateBriefing("evening", { generateAudio: true });
+      broadcastGlobal({ type: "briefing:ready", briefing });
+    }
+  } catch (err) {
+    console.error("[Autonomous Briefing] Error:", err.message);
+  }
+}
+
 function tick() {
   const now = Date.now();
   for (const source of listEnabledSources()) {
@@ -81,6 +124,9 @@ function tick() {
       broadcastGlobal({ type: "scheduler", level: "error", message: `Scheduler error: ${err.message}` });
     }
   }
+
+  // Check autonomous briefings
+  checkProactiveBriefing();
 }
 
 // Ensure every enabled source has a next_run_at so the UI can show it.

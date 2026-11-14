@@ -17,7 +17,7 @@ function escapeHtml(s) {
 }
 function fmt(iso) {
   if (!iso) return "—";
-  return new Date(iso).toLocaleString("en-IN", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
+  return new Date(iso).toLocaleString("en-PK", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
 }
 function toast(msg, kind = "") {
   const t = $("#toast");
@@ -177,6 +177,23 @@ function collectSourceBody() {
     freshness_override_hours: fresh,
   };
 }
+
+// Quick Source Presets (ArXiv, GitHub)
+$$(".preset-btns .preset-btn").forEach((b) => {
+  b.addEventListener("click", () => {
+    const url = b.dataset.url;
+    const type = b.dataset.type;
+    const name = b.dataset.name;
+    if ($("#srcUrl")) $("#srcUrl").value = url;
+    if ($("#srcType")) $("#srcType").value = type;
+    if ($("#srcName")) $("#srcName").value = name;
+    if ($("#advToggle") && !$("#advToggle").checked) {
+      $("#advToggle").checked = true;
+      $("#sourceForm")?.classList.remove("adv-hidden");
+    }
+    toast(`Loaded preset: ${name}`, "info");
+  });
+});
 
 // "Research now" — ad-hoc research into the feed without saving.
 $("#researchNow")?.addEventListener("click", () => {
@@ -432,19 +449,84 @@ $("#refineBtn").addEventListener("click", () => withBtnLoading($("#refineBtn"), 
   } catch (e) { toast(e.message, "error"); }
 }, "Editing…"));
 
-// ── Schedule modal ───────────────────────────────────────────────
-$("#openSchedule").addEventListener("click", async () => {
+// ── PDF Carousel Generator (LinkedIn Document Slides) ───────────
+async function generateCarousel(btn) {
+  if (!state.activeDraft) return toast("No active draft selected", "error");
+  await withBtnLoading(btn, async () => {
+    try {
+      toast("Generating 5-slide PDF carousel via AI…", "info");
+      const r = await api(`/api/drafts/${state.activeDraft}/carousel`, { method: "POST" });
+      toast("PDF Carousel generated successfully!", "success");
+      openCarouselModal(r);
+      const d = await api(`/api/drafts/${state.activeDraft}`);
+      renderImageState(d);
+    } catch (e) {
+      toast(e.message, "error");
+    }
+  }, "Generating…");
+}
+
+function openCarouselModal(data) {
+  const modal = $("#carouselModal");
+  if (!modal) return;
+  const list = $("#carouselSlidesPreview");
+  const sub = $("#carouselSubtitle");
+  const dlBtn = $("#carouselDownloadBtn");
+
+  if (sub) sub.textContent = data.title || "Technical Slide Deck";
+  if (dlBtn) dlBtn.href = data.carouselPath;
+
+  if (list && Array.isArray(data.slides)) {
+    list.innerHTML = data.slides.map((s) => `
+      <div class="carousel-slide-item">
+        <div class="carousel-slide-head">
+          <span>SLIDE ${s.slideNumber} · ${escapeHtml(s.tag || "")}</span>
+        </div>
+        <div class="carousel-slide-title">${escapeHtml(s.headline || "")}</div>
+        <div class="carousel-slide-body">${escapeHtml(s.body || "")}</div>
+        ${s.callout ? `<div class="carousel-slide-callout">✦ ${escapeHtml(s.callout)}</div>` : ""}
+      </div>
+    `).join("");
+  }
+
+  modal.classList.remove("hidden");
+}
+
+$("#generateCarouselBtn")?.addEventListener("click", () => generateCarousel($("#generateCarouselBtn")));
+$("#carouselModalClose")?.addEventListener("click", () => $("#carouselModal")?.classList.add("hidden"));
+$("#carouselPublishDirect")?.addEventListener("click", () => {
+  $("#carouselModal")?.classList.add("hidden");
+  openModal("publish");
+});
+
+// ── Schedule & Publish modal ──────────────────────────────────────
+async function openModal(mode = "publish") {
   await ensureAccounts();
-  if (!state.accounts.length) return toast("Connect an account in Settings first", "error");
-  $("#modalAccounts").innerHTML = state.accounts.map((a) => `
+  if (!state.accounts.length) return toast("Connect your LinkedIn or social account in Settings first", "error");
+  $("#modalAccounts").innerHTML = state.accounts.map((a) => {
+    const badge = `<span class="badge completed" style="margin-left:4px;font-size:9px;">Direct (Free)</span>`;
+    return `
     <label class="modal-acct">
-      <input type="checkbox" data-platform="${a.platform}" data-account="${a.zernio_account_id}" />
+      <input type="checkbox" checked data-platform="${a.platform}" data-account="${a.id}" />
       <span class="p">${escapeHtml(a.platform)}</span>
-      <span>${escapeHtml(a.username || a.display_name || a.zernio_account_id)}</span>
-    </label>`).join("");
+      <span>${escapeHtml(a.display_name || a.username || a.platform)}${badge}</span>
+    </label>`;
+  }).join("");
+  
+  const isNow = mode === "publish";
+  $("#modalNow").checked = isNow;
+  $("#modalSubmit").textContent = isNow ? "Publish Now 🚀" : "Confirm Schedule 🗓";
   $("#modalError").classList.add("hidden");
   $("#scheduleModal").classList.remove("hidden");
+}
+
+$("#openPublishNow")?.addEventListener("click", () => openModal("publish"));
+$("#openSchedule")?.addEventListener("click", () => openModal("schedule"));
+
+$("#modalNow")?.addEventListener("change", (e) => {
+  $("#modalSubmit").textContent = e.target.checked ? "Publish Now 🚀" : "Confirm Schedule 🗓";
 });
+
 $("#modalClose").addEventListener("click", () => $("#scheduleModal").classList.add("hidden"));
 
 $("#modalSubmit").addEventListener("click", async () => {
@@ -455,12 +537,12 @@ $("#modalSubmit").addEventListener("click", async () => {
   if (!publishNow && !when) { $("#modalError").textContent = "Pick a time or choose publish now."; $("#modalError").classList.remove("hidden"); return; }
   try {
     $("#modalSubmit").disabled = true;
-    await api(`/api/drafts/${state.activeDraft}/schedule`, {
+    const res = await api(`/api/drafts/${state.activeDraft}/schedule`, {
       method: "POST",
       body: { platforms, scheduledFor: when ? new Date(when).toISOString() : undefined, publishNow },
     });
     $("#scheduleModal").classList.add("hidden");
-    toast(publishNow ? "Publishing…" : "Scheduled", "success");
+    toast(publishNow ? "Published to LinkedIn successfully! 🚀" : "Scheduled successfully", "success");
     showView("schedule");
   } catch (e) { $("#modalError").textContent = e.message; $("#modalError").classList.remove("hidden"); }
   finally { $("#modalSubmit").disabled = false; }
@@ -503,6 +585,7 @@ async function loadSettings() {
   $("#setAssistantFastModel").value = s.assistant_fast_model || "";
   $("#setResearchModel").value = s.research_model || "";
   $("#setImageContentModel").value = s.image_content_model || "";
+  if ($("#setAssistantLanguage")) $("#setAssistantLanguage").value = s.assistant_language || "English";
   $("#setTtsProvider").value = s.tts_provider || "openrouter";
   $("#setTtsModel").value = s.tts_model || "";
   $("#setTtsVoice").value = s.tts_voice || "";
@@ -521,22 +604,59 @@ async function renderAccounts() {
   await ensureAccounts();
   const list = $("#accountsList");
   if (!state.accounts.length) { list.innerHTML = `<p class="hint">No connected accounts yet.</p>`; return; }
-  list.innerHTML = state.accounts.map((a) => `
+  list.innerHTML = state.accounts.map((a) => {
+    const badge = `<span class="badge completed" style="margin-left:6px;font-size:10px;">Direct (Free)</span>`;
+    const avatar = a.avatar_url ? `<img src="${escapeHtml(a.avatar_url)}" style="width:20px;height:20px;border-radius:50%;margin-right:6px;vertical-align:middle;" />` : "";
+    return `
     <div class="account-item">
-      <div><span class="p">${escapeHtml(a.platform)}</span> ${escapeHtml(a.username || a.display_name || a.zernio_account_id)}</div>
+      <div style="display:flex;align-items:center;">
+        ${avatar}
+        <div><span class="p">${escapeHtml(a.platform)}</span> ${escapeHtml(a.display_name || a.username || a.platform)}${badge}</div>
+      </div>
       <button class="icon-btn danger" data-id="${a.id}">Remove</button>
-    </div>`).join("");
+    </div>`;
+  }).join("");
   $$(".account-item .icon-btn", list).forEach((b) =>
     b.addEventListener("click", async () => { await api(`/api/accounts/${b.dataset.id}`, { method: "DELETE" }); renderAccounts(); }));
 }
 
 $$(".connect-btn").forEach((b) => b.addEventListener("click", async () => {
   try {
-    const { url } = await api(`/api/accounts/connect/${b.dataset.platform}`);
-    if (url) window.open(url, "_blank", "width=600,height=720");
-    else toast("No connect URL returned", "error");
+    const platform = b.dataset.platform;
+    const res = await api(`/api/accounts/connect/${platform}`);
+    if (res.url) {
+      window.location.href = res.url;
+    } else if (res.message) {
+      toast(res.message, "info");
+      renderAccounts();
+    } else {
+      toast("No connect URL returned", "error");
+    }
   } catch (e) { toast(e.message, "error"); }
 }));
+
+$("#checkOllamaBtn")?.addEventListener("click", async () => {
+  const pill = $("#ollamaPill");
+  try {
+    pill.className = "badge pending";
+    pill.textContent = "Checking local Ollama...";
+    const r = await api("/api/models/ollama");
+    if (r.available) {
+      const modelNames = r.models.map((m) => m.name).slice(0, 3).join(", ");
+      pill.className = "badge completed";
+      pill.textContent = `Ollama Online (${r.models.length} models: ${modelNames || "ready"})`;
+      toast("Ollama local connection verified!", "success");
+    } else {
+      pill.className = "badge failed";
+      pill.textContent = "Ollama Offline / Unreachable";
+      toast("Ollama is not running locally. Start it with 'ollama serve'", "error");
+    }
+  } catch (err) {
+    pill.className = "badge failed";
+    pill.textContent = "Error testing Ollama";
+    toast(err.message, "error");
+  }
+});
 
 $("#syncAccounts").addEventListener("click", async () => {
   try { await api("/api/accounts/sync", { method: "POST" }); toast("Accounts synced", "success"); renderAccounts(); }
@@ -568,6 +688,7 @@ $("#saveSettings").addEventListener("click", async () => {
       assistant_fast_model: $("#setAssistantFastModel").value,
       research_model: $("#setResearchModel").value,
       image_content_model: $("#setImageContentModel").value,
+      assistant_language: $("#setAssistantLanguage")?.value || "English",
       tts_provider: $("#setTtsProvider").value,
       tts_model: $("#setTtsModel").value,
       tts_voice: $("#setTtsVoice").value,
@@ -576,6 +697,29 @@ $("#saveSettings").addEventListener("click", async () => {
     }});
     toast("Settings saved", "success");
   } catch (e) { toast(e.message, "error"); }
+});
+
+// Voice preset quick selector
+$("#setVoicePreset")?.addEventListener("change", (e) => {
+  const val = e.target.value;
+  if (!val) return;
+  const presets = {
+    jarvis_gb: { provider: "google", model: "en-GB-Journey-O", voice: "en-GB-Journey-O" },
+    jarvis_local: { provider: "voicestudio", model: "tts-1", voice: "jarvis-prime" },
+    onyx: { provider: "openrouter", model: "tts-1", voice: "onyx" },
+    fable: { provider: "openrouter", model: "tts-1", voice: "fable" },
+    journey_f: { provider: "google", model: "en-US-Journey-F", voice: "en-US-Journey-F" },
+    journey_d: { provider: "google", model: "en-US-Journey-D", voice: "en-US-Journey-D" },
+    urdu_f: { provider: "google", model: "ur-PK-Standard-A", voice: "ur-PK-Standard-A" },
+    urdu_m: { provider: "google", model: "ur-PK-Standard-B", voice: "ur-PK-Standard-B" },
+    browser: { provider: "browser", model: "", voice: "" },
+  };
+  const cfg = presets[val];
+  if (cfg) {
+    $("#setTtsProvider").value = cfg.provider;
+    $("#setTtsModel").value = cfg.model;
+    $("#setTtsVoice").value = cfg.voice;
+  }
 });
 
 // ── Global live events ───────────────────────────────────────────
@@ -592,6 +736,96 @@ function connectEvents() {
     }
     if (data.type === "draft-image" && data.draftId === state.activeDraft && state.view === "studio" && data.status !== "generating") {
       openDraft(state.activeDraft);
+    }
+    if (data.type === "briefing:ready") {
+      toast("Autonomous briefing ready!", "info");
+      if (window.soundEngine) window.soundEngine.play("engage");
+      if (window.HUD?.loadBriefing) window.HUD.loadBriefing();
+    }
+    if (data.type === "auth:lock") {
+      toast("Cooper Locked: Biometric authentication active", "warn");
+      if (window.soundEngine) window.soundEngine.play("lock");
+      if (window.faceAuth) window.faceAuth.lock();
+    }
+    if (data.type === "auth:unlock") {
+      toast(`Operator Verified: ${data.user?.name || "Access Granted"}`, "info");
+      if (window.soundEngine) window.soundEngine.play("unlock");
+      if (window.faceAuth) window.faceAuth.hideLockScreen();
+    }
+    if (data.type === "auth:open-portal") {
+      if (window.biometricAdmin) window.biometricAdmin.open();
+    }
+    if (data.type === "barehands:status") {
+      if (window.barehandsOverlay) window.barehandsOverlay.setStatus(data.running);
+    }
+    if (data.type === "barehands:presented") {
+      toast(`Holographic Stage: Presented "${data.title}"`, "info");
+      if (window.soundEngine) window.soundEngine.play("repulsor");
+      if (window.barehandsOverlay) window.barehandsOverlay.onPresented(data);
+    }
+    if (data.type === "barehands:cleared") {
+      toast("Holographic Stage: Board cleared", "info");
+    }
+    if (data.type === "hud:sound") {
+      if (window.soundEngine) window.soundEngine.play(data.cue);
+    }
+    if (data.type === "hud:mode") {
+      if (window.arcReactor) window.arcReactor.setMode(data.mode);
+    }
+    if (data.type === "hud:power") {
+      if (window.arcReactor) window.arcReactor.setPower(data.power);
+    }
+    if (data.type === "brainstorm:open") {
+      if (window.jarvisFlowOverlay) window.jarvisFlowOverlay.open(data.topic);
+    }
+    if (data.type === "brainstorm:ready") {
+      toast(`JarvisFlow: Mind map ready for "${data.topic}"`, "info");
+      if (window.soundEngine) window.soundEngine.play("engage");
+      if (window.jarvisFlowOverlay && window.jarvisFlowOverlay.isOpen) {
+        window.jarvisFlowOverlay.session = data.session;
+        window.jarvisFlowOverlay.render();
+      }
+    }
+    if (data.type === "brainstorm:node-selected") {
+      if (window.jarvisFlowOverlay && window.jarvisFlowOverlay.isOpen) {
+        window.jarvisFlowOverlay.triggerNode(data.nodeId);
+      }
+    }
+    if (data.type === "ironhands:transform") {
+      if (window.ironHandsController) {
+        window.ironHandsController.transform = { ...window.ironHandsController.transform, ...data.transform };
+        if (data.gripState) window.ironHandsController.gripState = data.gripState;
+        window.ironHandsController.applyTransform();
+      }
+    }
+    if (data.type === "ironhands:target") {
+      if (window.ironHandsController) window.ironHandsController.setTarget(data.target);
+    }
+    if (data.type === "ironhands:explode") {
+      if (window.ironHandsController) window.ironHandsController.setExplodeFactor(data.explodeFactor);
+      if (window.soundEngine) window.soundEngine.play(data.explodeFactor > 0 ? "repulsor" : "lock");
+      toast(`IronHands: Arc Reactor ${data.explodeFactor > 0 ? "Deconstructed (" + Math.round(data.explodeFactor * 100) + "%)" : "Reassembled"}`, "info");
+    }
+    if (data.type === "ironhands:reset") {
+      if (window.ironHandsController) window.ironHandsController.reset();
+      toast("IronHands: 3D spatial alignment reset", "info");
+    }
+    if (data.type === "godseye:status") {
+      if (window.godsEyeOverlay) {
+        window.godsEyeOverlay.isRunning = data.status === "running";
+        window.godsEyeOverlay.updateBadge(data.status === "running" ? "ONLINE (KEYLESS ESRI)" : (data.status === "booting" ? "BOOTING..." : "STANDBY"));
+      }
+    }
+    if (data.type === "godseye:command") {
+      if (data.command?.action === "open") {
+        if (window.godsEyeOverlay) window.godsEyeOverlay.open();
+      } else if (data.command?.action === "flyTo") {
+        if (window.godsEyeOverlay) window.godsEyeOverlay.flyToTarget(data.command.location, data.command.lat, data.command.lon, data.command.altitude);
+        toast(`God's Eye: Aligning orbit over ${data.command.location}`, "info");
+      } else if (data.command?.action === "setOptics") {
+        if (window.godsEyeOverlay) window.godsEyeOverlay.setOptics(data.command.mode);
+        toast(`God's Eye: Sensor optics switched to ${data.command.mode}`, "info");
+      }
     }
     health();
   };
@@ -630,6 +864,10 @@ loadSettings = async function () { await _loadSettings(); renderGmailStatus(); }
 const params = new URLSearchParams(location.search);
 if (params.get("gmail") === "1") { toast("Gmail connected", "success"); history.replaceState(null, "", location.pathname); }
 else if (params.get("gmail") === "error") { toast("Gmail connection failed", "error"); history.replaceState(null, "", location.pathname); }
+if (params.get("connected") === "linkedin") { toast("LinkedIn connected successfully!", "success"); history.replaceState(null, "", location.pathname); }
+else if (params.get("connected")) { toast("Account connected successfully", "success"); history.replaceState(null, "", location.pathname); }
+if (params.get("error")) { toast(`OAuth Error: ${params.get("error")}`, "error"); history.replaceState(null, "", location.pathname); }
+
 // Always boot into the Jarvis dashboard (HUD) on load/refresh — never restore a
 // deep content-system view. Strip any lingering hash so refresh stays home.
 if (location.hash) history.replaceState(null, "", location.pathname + location.search);
@@ -637,3 +875,10 @@ showView("home");
 health();
 connectEvents();
 setInterval(health, 15000);
+
+// ── PWA Service Worker Registration ─────────────────────────────
+if ("serviceWorker" in navigator) {
+  window.addEventListener("load", () => {
+    navigator.serviceWorker.register("/sw.js").catch(() => {});
+  });
+}

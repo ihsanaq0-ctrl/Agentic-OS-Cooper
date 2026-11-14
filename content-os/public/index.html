@@ -8,6 +8,10 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="/styles.css" />
+  <link rel="manifest" href="/manifest.json" />
+  <meta name="theme-color" content="#0a0d14" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <script type="importmap">
     { "imports": { "three": "https://unpkg.com/three@0.160.0/build/three.module.js" } }
   </script>
@@ -23,6 +27,15 @@
         </div>
       </div>
       <div class="header-actions">
+        <button class="header-btn sys-mode-btn" id="sysModeBtn" title="Toggle System Automation Mode">⚡ System Mode: OFF</button>
+        <button class="header-btn home-only" id="gestureCamStartBtn" title="Toggle Hand Gesture Control (Air Mouse, Swipes, Approvals)" style="background:rgba(0,243,255,0.15);border-color:rgba(0,243,255,0.6);color:#00f3ff;">🖐️ Gestures: OFF</button>
+        <button class="header-btn home-only" id="toggleGesturePipBtn" title="Toggle Gesture Camera HUD Monitor" style="background:rgba(255,255,255,0.06);border-color:rgba(255,255,255,0.2);color:#94a3b8;">👁️ Vision PIP</button>
+        <button class="header-btn home-only" id="launchBarehandsBtn" title="Launch Bare Hands gestural control" style="background:rgba(111,229,214,0.15);border-color:rgba(111,229,214,0.6);color:#6fe5d6;">🖐️ Bare Hands</button>
+        <button class="header-btn home-only" id="launchJarvisFlowBtn" title="Launch Jarvis Flow gesture mind mapping" style="background:rgba(0,243,255,0.15);border-color:rgba(0,243,255,0.5);color:#00f3ff;">🧠 Jarvis Flow</button>
+        <button class="header-btn home-only" id="launchGodsEyeBtn" title="Launch God's Eye 3D Earth Reconnaissance" style="background:rgba(56,189,248,0.15);border-color:rgba(56,189,248,0.6);color:#38bdf8;">🌐 God's Eye</button>
+        <a href="http://localhost:3113" target="_blank" class="header-btn home-only" id="navMemoryGraphBtn" style="text-decoration:none;display:inline-flex;align-items:center;gap:4px;background:rgba(168,85,247,0.15);border-color:rgba(168,85,247,0.6);color:#c084fc;" title="AgentMemory Live Knowledge Graph Viewer">🕸️ Memory Graph</a>
+        <a href="/admin" class="header-btn home-only" id="navBioAdminBtn" style="text-decoration:none;display:inline-flex;align-items:center;gap:4px;" title="Face Auth Admin">👤 Admin</a>
+        <button class="header-btn home-only" id="manualLockBtn" title="Lock Cooper &amp; Face Login">🔒 Lock</button>
         <button class="header-btn back-hud" id="backToHud">← Dashboard</button>
         <button class="header-btn home-only" id="homeSettings">⚙ Settings</button>
         <span id="queuePill" class="status-pill">Queue: 0</span>
@@ -32,9 +45,13 @@
 
     <!-- ── HOME / HUD ──────────────────────────────────────────── -->
     <section class="view active" id="view-home">
+
       <div class="hud-grid">
+
+
         <!-- Expenses -->
         <div class="hud-panel hud-expenses">
+
           <div class="hud-panel-head">
             <span class="hud-panel-title">Expenses</span>
             <div class="hud-head-actions">
@@ -45,30 +62,92 @@
                 <button data-range="year">Year</button>
               </div>
               <button class="header-btn hud-sync-btn hidden" id="expSync">↻ Process</button>
+              <button class="header-btn hud-sync-btn" id="uploadStatementBtn" title="Upload Bank Statement PDF">📄 Statement</button>
             </div>
           </div>
           <div class="exp-totals">
             <div class="exp-stat income"><div class="lbl">Revenue</div><div class="val" id="expRevenue">—</div></div>
             <div class="exp-stat expense"><div class="lbl">Expense</div><div class="val" id="expExpense">—</div></div>
           </div>
-          <div class="exp-net">Net <b id="expNet">—</b></div>
+          <div class="exp-net">
+            <span>Net <b id="expNet">—</b></span>
+            <span class="burn-pill" id="burnRatePill">⚡ Velocity: Normal</span>
+          </div>
+
+          <!-- Bank Statement Dropzone -->
+          <div class="statement-dropzone hidden" id="statementDropzone">
+            <input type="file" id="statementFileInput" accept=".pdf" class="hidden" />
+            <div class="dropzone-box" id="dropzoneClick">
+              <span class="drop-icon">📥</span>
+              <div class="drop-text">
+                <b>Drop Pakistani Bank Statement (PDF)</b>
+                <span>Meezan, HBL, Sadapay, Nayapay, MCB</span>
+              </div>
+            </div>
+            <div class="dropzone-msg hidden" id="dropzoneMsg"></div>
+          </div>
+
           <div class="cat-list" id="expCats"></div>
         </div>
 
-        <!-- Globe / Jarvis -->
+        <!-- Globe / Cooper -->
         <div class="globe-stage hud-globe">
-          <div class="assistant-title">J · A · R · V · I · S</div>
+          <div class="assistant-title">C · O · O · P · E · R</div>
           <div class="assistant-hint">Tap the globe to speak</div>
+
+          <!-- Proactive Autonomous Briefing Banner -->
+          <div class="briefing-banner hidden" id="briefingBanner">
+            <div class="briefing-banner-head">
+              <div class="briefing-tag"><span class="pulse-dot"></span> <b id="briefingBadge">Morning Briefing Ready</b></div>
+              <button class="briefing-dismiss" id="briefingDismissBtn" title="Dismiss">✕</button>
+            </div>
+            <div class="briefing-banner-body" id="briefingSnippet">Generating personalized audio briefing...</div>
+            <div class="briefing-banner-actions">
+              <button class="btn-primary compact briefing-listen-btn" id="briefingPlayBtn">▶ Listen Briefing</button>
+              <button class="header-btn compact" id="briefingRefreshBtn">↻ Re-check</button>
+              <audio id="briefingAudioEl" class="hidden"></audio>
+            </div>
+          </div>
+
           <div class="globe-canvas-wrap" id="globeClick">
             <div class="globe-ring"></div>
             <div class="globe-ring r2"></div>
             <canvas id="globeCanvas"></canvas>
+            <canvas id="arcReactorCanvas" class="hidden"></canvas>
           </div>
-          <div class="assistant-status" id="assistantStatus">Idle</div>
+          <div style="display:flex;align-items:center;justify-content:center;gap:8px;margin-top:6px;">
+            <div class="assistant-status" id="assistantStatus">Idle</div>
+            <button class="header-btn compact hud-mode-toggle" id="hudModeToggle" title="Toggle Globe / Arc Reactor" style="font-size:10px;padding:2px 8px;color:#f59e0b;border-color:rgba(245,158,11,0.4);">⚡ Arc Reactor</button>
+            <button class="header-btn compact" id="hudExplodeBtn" title="IronHands Holographic Explode Disassembly" style="font-size:10px;padding:2px 8px;color:#ef4444;border-color:rgba(239,68,68,0.4);">💥 Explode</button>
+          </div>
+
+          <!-- HITL System Permission Request Card -->
+          <div class="permission-card hidden" id="permissionCard">
+            <div class="perm-head">
+              <span class="perm-icon">🛡️</span>
+              <span class="perm-title">System Action Requested</span>
+            </div>
+            <div class="perm-body" id="permSummary">Permission required to execute task</div>
+            <div class="perm-actions">
+              <button class="btn-primary compact perm-approve" id="permApproveBtn">Allow &amp; Execute</button>
+              <button class="header-btn perm-deny" id="permDenyBtn">Deny</button>
+            </div>
+          </div>
+
           <button class="chat-history-pill hidden" id="chatHistoryPill">⌃ Chat history</button>
           <div class="assistant-bar">
-            <input type="text" id="assistantInput" placeholder="Ask anything, or “generate an image of…”" />
+            <input type="text" id="assistantInput" placeholder="Ask Cooper anything, or “look at my screen…”" />
             <button id="assistantSend">Send</button>
+          </div>
+
+          <!-- Quick Action Chips -->
+          <div class="quick-chips">
+            <button class="chip-btn" data-prompt="Look at my screen and tell me what's on it">👁 Screen Vision</button>
+            <button class="chip-btn" data-prompt="Give me my morning briefing">🎙 Morning Briefing</button>
+            <button class="chip-btn" data-prompt="List my git projects in workspace">💻 Dev Projects</button>
+            <button class="chip-btn" data-prompt="Analyze my spending velocity and budget burn rate">📊 Burn Rate</button>
+            <button class="chip-btn" data-prompt="Deconstruct the Arc Reactor components in 3D for inspection">🖐️ Explode Reactor</button>
+            <button class="chip-btn" data-prompt="Launch God's Eye View 3D satellite reconnaissance">🛰️ Orbital Recon</button>
           </div>
           <div class="assistant-reply" id="assistantReply"></div>
           <div class="chat-history-panel hidden" id="chatHistoryPanel">
@@ -134,8 +213,16 @@
             <div class="sidebar-fixed">
               <h2>Research a topic</h2>
               <label for="srcUrl">What should I research?</label>
-              <input type="text" id="srcUrl" placeholder="e.g. latest AI agent launches" />
-              <div class="btn-row">
+              <input type="text" id="srcUrl" placeholder="e.g. latest AI agent launches, or paste YouTube/ArXiv URL" />
+              <div class="preset-sources">
+                <span class="preset-label">AI / ML Presets:</span>
+                <div class="preset-btns">
+                  <button type="button" class="preset-btn" data-type="arxiv" data-url="cs.AI" data-name="ArXiv cs.AI (Daily Papers)">+ ArXiv AI</button>
+                  <button type="button" class="preset-btn" data-type="arxiv" data-url="cs.MA" data-name="ArXiv cs.MA (Multi-Agent)">+ ArXiv Multi-Agent</button>
+                  <button type="button" class="preset-btn" data-type="github" data-url="AI" data-name="GitHub Trending AI Repos">+ GitHub AI</button>
+                </div>
+              </div>
+              <div class="btn-row mt">
                 <button type="button" class="btn-primary compact" id="researchNow">Research now</button>
                 <button type="button" class="header-btn" id="srcSubmit">Save &amp; schedule</button>
               </div>
@@ -154,6 +241,9 @@
                 <select id="srcType">
                   <option value="research" selected>Auto-research (Perplexity)</option>
                   <option value="auto">Auto-detect (RSS, else scrape)</option>
+                  <option value="arxiv">ArXiv Paper Feed (cs.AI / cs.MA / cs.CL)</option>
+                  <option value="youtube">YouTube Video / Transcript</option>
+                  <option value="github">GitHub Trending Repos</option>
                   <option value="rss">RSS / Atom feed</option>
                   <option value="url">Single page (Firecrawl)</option>
                   <option value="search">Web search (Firecrawl)</option>
@@ -305,7 +395,11 @@
                     <button class="icon-btn" id="editCaptionBtn" title="Edit caption">✎ Edit caption</button>
                   </div>
                 </div>
-                <button class="btn-primary" id="openSchedule">Schedule this post</button>
+                <div class="studio-actions-row" style="display:flex;gap:10px;margin-top:14px;flex-wrap:wrap;">
+                  <button class="btn-primary" id="openPublishNow" style="flex:1;background:#0a66c2;border-color:#0a66c2;font-weight:600;">Publish Now 🚀</button>
+                  <button class="header-btn" id="generateCarouselBtn" style="flex:1;border-color:#7000ff;color:#c084fc;" title="Generate 5-Slide LinkedIn PDF Carousel">📑 PDF Carousel</button>
+                  <button class="header-btn" id="openSchedule" style="flex:1;">Schedule 🗓</button>
+                </div>
               </div>
             </div>
           </div>
@@ -329,21 +423,42 @@
       <div class="settings-grid">
         <div class="card">
           <h2>Connected accounts</h2>
-          <p class="hint">Connect via Zernio. Only Instagram, LinkedIn, and X are enabled.</p>
-          <div class="connect-row">
-            <button class="connect-btn" data-platform="instagram">Connect Instagram</button>
-            <button class="connect-btn" data-platform="linkedin">Connect LinkedIn</button>
+          <p class="hint">Connect your social accounts for direct, free multi-platform broadcasting.</p>
+          <div class="connect-row" style="display:flex;gap:8px;flex-wrap:wrap;">
+            <button class="connect-btn" data-platform="linkedin">Connect LinkedIn (Free)</button>
+            <button class="connect-btn" data-platform="github">Connect GitHub</button>
+            <button class="connect-btn" data-platform="telegram">Connect Telegram</button>
+            <button class="connect-btn" data-platform="discord">Connect Discord</button>
             <button class="connect-btn" data-platform="twitter">Connect X</button>
           </div>
-          <button class="header-btn" id="syncAccounts">Sync accounts</button>
+          <button class="header-btn mt" id="syncAccounts">Sync accounts</button>
           <div id="accountsList" class="accounts-list"></div>
           <details class="help">
             <summary>Setup notes</summary>
             <ul>
-              <li><b>Instagram</b>: requires a Business or Creator account. Zernio runs the Meta OAuth and handles container creation and publishing.</li>
-              <li><b>LinkedIn</b>: personal or company page via Zernio OAuth.</li>
-              <li><b>X / Twitter</b>: OAuth via Zernio (platform value <code>twitter</code>).</li>
-              <li>After connecting, click <b>Sync accounts</b> to pull them in.</li>
+              <li><b>LinkedIn (Direct &amp; 100% Free)</b>: Uses your official LinkedIn Developer App (<code>w_member_social</code>).</li>
+              <li><b>Telegram Channel (Free)</b>: Add <code>TELEGRAM_BOT_TOKEN</code> and <code>TELEGRAM_CHANNEL_ID</code> to <code>.env</code>.</li>
+              <li><b>Discord (Free)</b>: Add <code>DISCORD_WEBHOOK_URL</code> to <code>.env</code>.</li>
+              <li><b>X / Twitter (Free)</b>: Add <code>TWITTER_API_KEY</code> and tokens to <code>.env</code>.</li>
+            </ul>
+          </details>
+        </div>
+
+        <div class="card">
+          <h2>Local Offline Intelligence (Ollama)</h2>
+          <p class="hint">Fallback local GPU intelligence if internet drops or OpenRouter credits are exhausted.</p>
+          <div id="ollamaStatus" class="service-flags">
+            <span class="badge pending" id="ollamaPill">Ollama: Ready to test</span>
+          </div>
+          <div class="btn-row mt">
+            <button class="header-btn" id="checkOllamaBtn">⚡ Test Ollama Connection</button>
+          </div>
+          <details class="help">
+            <summary>Setup notes</summary>
+            <ul>
+              <li>Install Ollama from <code>https://ollama.com</code></li>
+              <li>Pull model: <code>ollama pull llama3.3</code></li>
+              <li>Set <code>OLLAMA_BASE_URL=http://localhost:11434/v1</code> in <code>.env</code></li>
             </ul>
           </details>
         </div>
@@ -376,7 +491,7 @@
           <label for="setNiche" class="mt">Niche keywords (comma-separated)</label>
           <input type="text" id="setNiche" placeholder="AI, automation, startups" />
           <label for="setTimezone" class="mt">Timezone</label>
-          <input type="text" id="setTimezone" placeholder="Asia/Kolkata" />
+          <input type="text" id="setTimezone" placeholder="Asia/Karachi" />
         </div>
 
         <div class="card">
@@ -386,7 +501,7 @@
           <label for="setAssistantModel" class="mt">Jarvis assistant model (tool-capable)</label>
           <input type="text" id="setAssistantModel" placeholder="anthropic/claude-sonnet-4" />
           <label for="setAssistantFastModel" class="mt">Jarvis fast reply model (instant chat)</label>
-          <input type="text" id="setAssistantFastModel" placeholder="google/gemini-2.5-flash" />
+          <input type="text" id="setAssistantFastModel" placeholder="llama-3.1-8b-instant" />
           <label for="setResearchModel" class="mt">Research model</label>
           <input type="text" id="setResearchModel" placeholder="perplexity/sonar" />
           <label for="setImageContentModel" class="mt">Content image model</label>
@@ -400,18 +515,47 @@
         </div>
 
         <div class="card">
-          <h2>Jarvis voice</h2>
-          <label for="setTtsProvider">Voice provider</label>
+          <h2>Jarvis voice & language</h2>
+          <label for="setAssistantLanguage">Assistant Language</label>
+          <select id="setAssistantLanguage">
+            <option value="English">English</option>
+            <option value="Urdu">Urdu (اردو)</option>
+            <option value="Spanish">Spanish (Español)</option>
+            <option value="French">French (Français)</option>
+            <option value="German">German (Deutsch)</option>
+            <option value="Arabic">Arabic (العربية)</option>
+            <option value="Hindi">Hindi (हिन्दी)</option>
+            <option value="Japanese">Japanese (日本語)</option>
+            <option value="Chinese">Chinese (中文)</option>
+          </select>
+
+          <label for="setVoicePreset" class="mt">Voice Persona Preset</label>
+          <select id="setVoicePreset">
+            <option value="">-- Quick Select Preset --</option>
+            <option value="jarvis_gb">🇬🇧 JARVIS Butler (en-GB-Journey-O // Google)</option>
+            <option value="jarvis_local">🤖 JARVIS Local Butler (jarvis-prime // VoiceStudio)</option>
+            <option value="onyx">🎙️ Onyx Deep Male (onyx // OpenRouter)</option>
+            <option value="fable">🎩 Fable British Male (fable // OpenRouter)</option>
+            <option value="journey_f">👩 Journey Realistic Female (en-US-Journey-F // Google)</option>
+            <option value="journey_d">👨 Journey Realistic Male (en-US-Journey-D // Google)</option>
+            <option value="urdu_f">🇵🇰 Urdu Female (ur-PK-Standard-A // Google)</option>
+            <option value="urdu_m">🇵🇰 Urdu Male (ur-PK-Standard-B // Google)</option>
+            <option value="browser">💻 Browser Default Voice (Instant Offline)</option>
+          </select>
+
+          <label for="setTtsProvider" class="mt">Voice provider</label>
           <select id="setTtsProvider">
-            <option value="openrouter">OpenRouter TTS (natural)</option>
+            <option value="google">Google Cloud TTS (ultra-realistic Journey / Neural2)</option>
+            <option value="openrouter">OpenRouter / OpenAI TTS (tts-1)</option>
+            <option value="voicestudio">VoiceStudio OmniVoice (Local Jarvis butler, :3900)</option>
             <option value="browser">Browser voice (instant, offline)</option>
           </select>
-          <label for="setTtsModel" class="mt">TTS model</label>
-          <input type="text" id="setTtsModel" placeholder="hexgrad/kokoro-82m" />
+          <label for="setTtsModel" class="mt">TTS model / voice name</label>
+          <input type="text" id="setTtsModel" placeholder="en-US-Journey-F or tts-1" />
           <label for="setTtsVoice" class="mt">Voice</label>
-          <input type="text" id="setTtsVoice" placeholder="bm_george" />
+          <input type="text" id="setTtsVoice" placeholder="en-US-Journey-F (or alloy / onyx)" />
           <label for="setTranscribeModel" class="mt">Transcription model</label>
-          <input type="text" id="setTranscribeModel" placeholder="openai/whisper-large-v3" />
+          <input type="text" id="setTranscribeModel" placeholder="whisper-large-v3" />
         </div>
 
         <div class="card">
@@ -445,9 +589,184 @@
     </div>
   </div>
 
+  <!-- Carousel modal -->
+  <div id="carouselModal" class="modal hidden">
+    <div class="modal-card" style="max-width:600px;">
+      <div class="modal-head">
+        <h3>LinkedIn PDF Carousel</h3>
+        <button class="history-panel-close" id="carouselModalClose">×</button>
+      </div>
+      <p class="hint" id="carouselSubtitle">5-Slide Technical Architecture Breakdown</p>
+      <div id="carouselSlidesPreview" class="carousel-preview-list"></div>
+      <div class="modal-actions" style="display:flex;gap:10px;margin-top:16px;">
+        <a id="carouselDownloadBtn" class="header-btn" style="flex:1;text-align:center;text-decoration:none;display:flex;align-items:center;justify-content:center;" download target="_blank">Download PDF 📥</a>
+        <button class="btn-primary" id="carouselPublishDirect" style="flex:1;background:#0a66c2;border-color:#0a66c2;">Publish to LinkedIn 🚀</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── STARK-TECH BIOMETRIC LOCK SCREEN ────────────────── -->
+  <div id="biometricLockScreen" class="lock-screen hidden">
+    <div class="lock-card">
+      <div class="lock-arc-scanner">
+        <div class="scanner-ring-outer"></div>
+        <div class="scanner-ring-inner"></div>
+        <div class="lock-cam-wrapper">
+          <video id="lockCamVideo" class="lock-cam-video" playsinline muted autoplay></video>
+          <div id="lockReticle" class="lock-reticle"></div>
+        </div>
+      </div>
+      <h2 class="lock-title">COOPER BIOMETRICS</h2>
+      <p id="lockStatusText" class="lock-status">INITIALIZING OPTICAL SENSORS...</p>
+      <div class="lock-actions">
+        <button class="header-btn" id="lockPinBypassBtn">🔑 PIN Access</button>
+      </div>
+      <div id="lockPinModal" class="lock-pin-modal hidden">
+        <input type="password" id="lockPinInput" placeholder="Enter PIN code" maxlength="8" />
+        <button class="btn-primary" id="lockPinSubmit">Unlock</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── BIOMETRIC ADMIN MODAL ────────────────────────────── -->
+  <div id="bioAdminModal" class="modal hidden">
+    <div class="modal-card" style="max-width:680px;">
+      <div class="modal-head">
+        <h3>Biometric Access &amp; Operators</h3>
+        <button class="history-panel-close" id="bioAdminClose">×</button>
+      </div>
+      
+      <div class="admin-enroll-section">
+        <h4 style="margin-top:0;color:var(--text);font-size:14px;">Enroll New Operator</h4>
+        <div class="admin-enroll-form" style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px;">
+          <div>
+            <label for="enrollUserName">Operator Name</label>
+            <input type="text" id="enrollUserName" placeholder="e.g. Ihsan Ullah (Admin)" />
+          </div>
+          <div>
+            <label for="enrollUserRole">Access Role</label>
+            <select id="enrollUserRole">
+              <option value="admin">Admin (Full Control)</option>
+              <option value="operator">Operator (Standard)</option>
+              <option value="guest">Guest (Restricted)</option>
+            </select>
+          </div>
+        </div>
+        
+        <div style="display:flex;gap:10px;margin-bottom:12px;">
+          <input type="password" id="enrollUserPin" placeholder="Emergency Fallback PIN (e.g. 1234)" style="flex:1;" />
+          <button class="header-btn" id="startEnrollCamBtn">📷 Start Webcam</button>
+        </div>
+
+        <div id="enrollCamContainer" class="enroll-cam-box hidden" style="margin-top:10px;">
+          <div class="enroll-cam-frame">
+            <video id="enrollCamVideo" playsinline muted autoplay></video>
+            <div class="enroll-reticle"></div>
+          </div>
+          <div class="enroll-controls" style="display:flex;gap:10px;margin-top:10px;">
+            <button class="btn-primary" id="saveEnrollUserBtn" style="flex:1;">Capture &amp; Enroll Operator</button>
+            <button class="header-btn" id="testRecogBtn">Test Recognition</button>
+          </div>
+        </div>
+        <p id="enrollStatusMsg" class="hint mt"></p>
+      </div>
+
+      <hr style="border:none;border-top:1px solid rgba(255,255,255,0.08);margin:16px 0;" />
+
+      <h4 style="color:var(--text);font-size:14px;margin-bottom:10px;">Authorized Operators</h4>
+      <div id="enrolledUsersList" class="enrolled-users-list"></div>
+    </div>
+  </div>
+
+  <!-- JarvisFlow Gesture Mind-Mapping Canvas Modal -->
+  <div id="jarvisFlowModal" class="flow-modal hidden" style="position:fixed;inset:0;background:rgba(5,10,18,0.94);backdrop-filter:blur(18px);z-index:9999;display:none;flex-direction:column;overflow:hidden;font-family:var(--font-mono, monospace);">
+    <!-- Canvas Header -->
+    <div style="display:flex;align-items:center;justify-content:space-between;padding:16px 24px;border-bottom:1px solid rgba(0,243,255,0.2);background:rgba(0,243,255,0.03);z-index:20;">
+      <div>
+        <div style="font-size:10px;letter-spacing:0.25em;color:#00f3ff;text-transform:uppercase;font-weight:700;">JARVIS FLOW // NEURAL MIND-MAP</div>
+        <h2 id="flowTopicTitle" style="margin:2px 0 0 0;font-size:18px;color:#fff;font-weight:600;letter-spacing:0.05em;">Multi-Agent System Foundations</h2>
+      </div>
+      <div style="display:flex;align-items:center;gap:12px;">
+        <div style="display:flex;align-items:center;gap:6px;background:rgba(0,0,0,0.5);border:1px solid rgba(0,243,255,0.25);border-radius:4px;padding:4px 8px;">
+          <button id="flowPrevPageBtn" style="background:none;border:none;color:#00f3ff;cursor:pointer;font-size:12px;padding:2px 6px;">◀</button>
+          <span id="flowPageIndicator" style="font-size:11px;color:#94a3b8;letter-spacing:0.1em;">1 / 3</span>
+          <button id="flowNextPageBtn" style="background:none;border:none;color:#00f3ff;cursor:pointer;font-size:12px;padding:2px 6px;">▶</button>
+        </div>
+        <button id="flowCloseBtn" style="background:rgba(239,68,68,0.15);border:1px solid rgba(239,68,68,0.4);color:#ef4444;border-radius:4px;cursor:pointer;font-size:14px;padding:4px 10px;transition:all 0.2s;" title="Close (Esc)">✕</button>
+      </div>
+    </div>
+
+    <!-- Canvas Field -->
+    <div class="flow-stage-area" style="flex:1;position:relative;width:100%;height:100%;overflow:hidden;">
+      <!-- Background Cyber Grid -->
+      <div style="position:absolute;inset:0;background-image:radial-gradient(circle at 50% 50%, rgba(0,243,255,0.05) 0%, transparent 65%), linear-gradient(rgba(0,243,255,0.03) 1px, transparent 1px), linear-gradient(90deg, rgba(0,243,255,0.03) 1px, transparent 1px);background-size:100% 100%, 40px 40px, 40px 40px;pointer-events:none;"></div>
+
+      <!-- SVG Kinetic Bezier Trails -->
+      <svg id="flowSvgCanvas" style="position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:5;">
+        <style>
+          .flow-trail-line { fill: none; stroke: rgba(0,243,255,0.4); stroke-width: 2; stroke-dasharray: 6 3; animation: flowDash 20s linear infinite; filter: drop-shadow(0 0 6px rgba(0,243,255,0.5)); }
+          @keyframes flowDash { to { stroke-dashoffset: -1000; } }
+        </style>
+      </svg>
+
+      <!-- 5 Floating Topic Nodes -->
+      <div id="flow-node-center" class="flow-node flow-node-center" style="position:absolute;transform:translate(-50%,-50%);z-index:10;cursor:pointer;background:rgba(0,243,255,0.12);border:2px solid #00f3ff;box-shadow:0 0 25px rgba(0,243,255,0.35);padding:14px 20px;border-radius:12px;min-width:180px;text-align:center;backdrop-filter:blur(8px);transition:all 0.2s;">
+        <div class="flow-node-dir" style="font-size:9px;color:#00f3ff;letter-spacing:0.2em;font-weight:700;">CORE</div>
+        <div class="flow-node-label" style="font-size:14px;color:#fff;font-weight:700;margin-top:2px;">Agentic OS</div>
+      </div>
+
+      <div id="flow-node-up" class="flow-node" style="position:absolute;transform:translate(-50%,-50%);z-index:10;cursor:pointer;background:rgba(15,23,42,0.85);border:1px solid rgba(0,243,255,0.4);box-shadow:0 0 15px rgba(0,243,255,0.2);padding:10px 16px;border-radius:8px;min-width:140px;text-align:center;backdrop-filter:blur(8px);transition:all 0.2s;">
+        <div class="flow-node-dir" style="font-size:9px;color:#38bdf8;letter-spacing:0.15em;">UP (VISION)</div>
+        <div class="flow-node-label" style="font-size:12px;color:#e2e8f0;font-weight:600;margin-top:2px;">Autonomous Vision</div>
+      </div>
+
+      <div id="flow-node-right" class="flow-node" style="position:absolute;transform:translate(-50%,-50%);z-index:10;cursor:pointer;background:rgba(15,23,42,0.85);border:1px solid rgba(0,243,255,0.4);box-shadow:0 0 15px rgba(0,243,255,0.2);padding:10px 16px;border-radius:8px;min-width:140px;text-align:center;backdrop-filter:blur(8px);transition:all 0.2s;">
+        <div class="flow-node-dir" style="font-size:9px;color:#38bdf8;letter-spacing:0.15em;">RIGHT (TECH)</div>
+        <div class="flow-node-label" style="font-size:12px;color:#e2e8f0;font-weight:600;margin-top:2px;">Hardware &amp; Bridges</div>
+      </div>
+
+      <div id="flow-node-down" class="flow-node" style="position:absolute;transform:translate(-50%,-50%);z-index:10;cursor:pointer;background:rgba(15,23,42,0.85);border:1px solid rgba(0,243,255,0.4);box-shadow:0 0 15px rgba(0,243,255,0.2);padding:10px 16px;border-radius:8px;min-width:140px;text-align:center;backdrop-filter:blur(8px);transition:all 0.2s;">
+        <div class="flow-node-dir" style="font-size:9px;color:#38bdf8;letter-spacing:0.15em;">DOWN (EXECUTION)</div>
+        <div class="flow-node-label" style="font-size:12px;color:#e2e8f0;font-weight:600;margin-top:2px;">Execution Engine</div>
+      </div>
+
+      <div id="flow-node-left" class="flow-node" style="position:absolute;transform:translate(-50%,-50%);z-index:10;cursor:pointer;background:rgba(15,23,42,0.85);border:1px solid rgba(0,243,255,0.4);box-shadow:0 0 15px rgba(0,243,255,0.2);padding:10px 16px;border-radius:8px;min-width:140px;text-align:center;backdrop-filter:blur(8px);transition:all 0.2s;">
+        <div class="flow-node-dir" style="font-size:9px;color:#38bdf8;letter-spacing:0.15em;">LEFT (SECURITY)</div>
+        <div class="flow-node-label" style="font-size:12px;color:#e2e8f0;font-weight:600;margin-top:2px;">Security &amp; Guardrails</div>
+      </div>
+
+      <!-- Trigger Line -->
+      <div id="flowTriggerLine" style="position:absolute;bottom:18%;left:5%;right:5%;height:2px;background:linear-gradient(90deg, transparent, rgba(0,243,255,0.6), transparent);box-shadow:0 0 12px rgba(0,243,255,0.4);pointer-events:none;z-index:6;display:flex;justify-content:center;">
+        <span style="transform:translateY(-50%);background:#050b14;border:1px solid rgba(0,243,255,0.5);border-radius:12px;padding:2px 14px;font-size:10px;color:#00f3ff;letter-spacing:0.15em;text-transform:uppercase;">⚡ TRIGGER LINE (Drag or Move Fingertip Down to Expand)</span>
+      </div>
+
+      <!-- Holographic Detail Breakdown Panel -->
+      <div id="flowDetailPanel" class="flow-detail-panel hidden" style="position:absolute;bottom:24px;left:50%;transform:translateX(-50%);width:min(90%, 640px);background:rgba(10,18,30,0.92);border:1px solid #00f3ff;box-shadow:0 0 30px rgba(0,243,255,0.3);border-radius:12px;padding:20px 24px;z-index:30;backdrop-filter:blur(16px);">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px;">
+          <div>
+            <div id="flowDetailDir" style="font-size:10px;color:#00f3ff;letter-spacing:0.2em;font-weight:700;">QUADRANT</div>
+            <h3 id="flowDetailTitle" style="margin:2px 0 0 0;color:#fff;font-size:16px;">Node Title</h3>
+          </div>
+          <button id="flowDetailCloseBtn" style="background:none;border:none;color:#94a3b8;cursor:pointer;font-size:16px;">✕</button>
+        </div>
+        <p id="flowDetailBody" style="font-size:13px;color:#cbd5e1;line-height:1.6;margin:0;"></p>
+      </div>
+    </div>
+  </div>
+
   <div id="toast" class="toast hidden"></div>
+
   <script src="/app.js"></script>
   <script src="/hud/hud.js"></script>
+  <script type="module" src="/hud/soundEngine.js"></script>
   <script type="module" src="/hud/globe.js"></script>
+  <script type="module" src="/hud/arcReactor.js"></script>
+  <script type="module" src="/face/faceAuth.js"></script>
+  <script type="module" src="/admin/admin.js"></script>
+  <script type="module" src="/hud/barehandsOverlay.js"></script>
+  <script type="module" src="/hud/jarvisFlowOverlay.js"></script>
+  <script type="module" src="/hud/ironHandsController.js"></script>
+  <script type="module" src="/hud/gestureEngine.js"></script>
+  <script type="module" src="/hud/godsEyeOverlay.js"></script>
 </body>
 </html>

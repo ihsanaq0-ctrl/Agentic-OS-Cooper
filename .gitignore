@@ -10,14 +10,18 @@ node_modules/
 *.pem
 *.key
 
-# Local database (contains personal mail/expense/token data)
-**/data/*.sqlite
-**/data/*.sqlite-shm
-**/data/*.sqlite-wal
-*.sqlite
-*.sqlite-shm
-*.sqlite-wal
-*.sqlite-journal
+# Local database and state (contains personal mail/expense/token data)
+**/data/
+data/
+*.sqlite*
+*.lock
+*.pid
+
+# Vendor repos and huge archives
+*Github Repos*
+**/Github Repos/**
+"Github Repos/"
+*.zip
 
 # Generated/user content
 **/storage/
@@ -31,7 +35,6 @@ npm-debug.log*
 
 # Runtime locks / state
 .claude/
-*.lock
 
 # OS / editor cruft
 .DS_Store
@@ -39,3 +42,7 @@ Thumbs.db
 *.swp
 .idea/
 .vscode/
+
+# Conversation notes & backups
+Antigravity last conversation*.txt
+*.txt.bak

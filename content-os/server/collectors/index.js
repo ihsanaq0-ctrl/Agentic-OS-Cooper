@@ -1,6 +1,9 @@
 import { collectRss, tryParseFeed } from "./rss.js";
 import { scrapeUrl, searchWeb } from "./firecrawl.js";
 import { collectResearch } from "./research.js";
+import { collectYouTube } from "./youtube.js";
+import { collectArxiv } from "./arxiv.js";
+import { collectGitHub } from "./github.js";
 
 // Resolve a source to a concrete collection strategy and return raw articles.
 // `log` is an optional (level, message) callback for live job logs.
@@ -9,14 +12,23 @@ export async function collectSource(source, log = () => {}) {
   let type = source.type ?? "auto";
 
   if (type === "auto") {
+    // Check if it's a YouTube URL first
+    if (/(?:youtube\.com|youtu\.be)/.test(source.url)) {
+      log("info", "Detected YouTube video URL");
+      type = "youtube";
+    } else if (/arxiv\.org/.test(source.url)) {
+      log("info", "Detected ArXiv URL");
+      type = "arxiv";
+    } else {
     log("info", "Auto-detecting source type…");
     const feed = await tryParseFeed(source.url);
     if (feed) {
       log("success", `Detected RSS feed: ${feed.title || source.url}`);
       type = "rss";
     } else {
-      log("info", "No RSS feed found — using Firecrawl to scrape the page");
-      type = "url";
+        log("info", "No RSS feed found — using Firecrawl to scrape the page");
+        type = "url";
+      }
     }
   }
 
@@ -37,6 +49,24 @@ export async function collectSource(source, log = () => {}) {
       log("info", `Searching the web for "${source.url}"`);
       const items = await searchWeb(source.url, { tags });
       log("success", `Search returned ${items.length} results`);
+      return items;
+    }
+    case "youtube": {
+      log("info", `Fetching YouTube transcript for ${source.url}`);
+      const items = await collectYouTube(source.url, { tags });
+      log("success", `YouTube returned ${items.length} item(s)`);
+      return items;
+    }
+    case "arxiv": {
+      log("info", `Fetching ArXiv papers from ${source.url}`);
+      const items = await collectArxiv(source.url, { tags });
+      log("success", `ArXiv returned ${items.length} papers`);
+      return items;
+    }
+    case "github": {
+      log("info", `Fetching trending GitHub repos for "${source.url}"`);
+      const items = await collectGitHub(source.url, { tags });
+      log("success", `GitHub returned ${items.length} repos`);
       return items;
     }
     case "url":

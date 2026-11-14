@@ -1,0 +1,583 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Cooper OS — Biometric Admin & Face Authentication</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/styles.css" />
+  <style>
+    body {
+      background: #060911;
+      color: #e2e8f0;
+      font-family: 'Plus Jakarta Sans', sans-serif;
+      margin: 0;
+      padding: 0;
+      min-height: 100vh;
+    }
+    .admin-container {
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 24px;
+    }
+    .admin-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding-bottom: 20px;
+      border-bottom: 1px solid rgba(0, 243, 255, 0.15);
+      margin-bottom: 28px;
+    }
+    .admin-logo {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+    }
+    .admin-logo-icon {
+      width: 44px;
+      height: 44px;
+      border-radius: 50%;
+      background: rgba(0, 243, 255, 0.1);
+      border: 2px solid #00f3ff;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 20px;
+      color: #00f3ff;
+      box-shadow: 0 0 15px rgba(0, 243, 255, 0.3);
+    }
+    .admin-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 24px;
+    }
+    @media (max-width: 900px) {
+      .admin-grid { grid-template-columns: 1fr; }
+    }
+    .admin-card {
+      background: rgba(13, 20, 36, 0.7);
+      border: 1px solid rgba(0, 243, 255, 0.15);
+      border-radius: 14px;
+      padding: 24px;
+      backdrop-filter: blur(12px);
+      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+    }
+    .admin-card h2 {
+      margin-top: 0;
+      font-size: 17px;
+      color: #00f3ff;
+      font-family: 'JetBrains Mono', monospace;
+      letter-spacing: 1px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+      padding-bottom: 12px;
+    }
+    .scanner-view {
+      position: relative;
+      width: 100%;
+      height: 320px;
+      border-radius: 12px;
+      overflow: hidden;
+      background: #03060c;
+      border: 1px solid rgba(0, 243, 255, 0.4);
+      box-shadow: inset 0 0 30px rgba(0, 243, 255, 0.2);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .scanner-video {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      transform: scaleX(-1);
+    }
+    .scanner-reticle-box {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      width: 170px;
+      height: 220px;
+      border-radius: 50%;
+      border: 2px dashed #00f3ff;
+      box-shadow: 0 0 25px rgba(0, 243, 255, 0.4);
+      pointer-events: none;
+      transition: all 0.3s ease;
+    }
+    .scanner-reticle-box::after {
+      content: "";
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      height: 2px;
+      background: linear-gradient(90deg, transparent, #00f3ff, transparent);
+      animation: scanBeam 2.5s ease-in-out infinite alternate;
+    }
+    @keyframes scanBeam {
+      0% { top: 5%; opacity: 0.2; }
+      50% { opacity: 0.9; }
+      100% { top: 95%; opacity: 0.2; }
+    }
+    .reticle-found {
+      border-color: #00ffc2 !important;
+      box-shadow: 0 0 35px #00ffc2 !important;
+    }
+    .telemetry-bar {
+      margin-top: 14px;
+      padding: 10px 14px;
+      background: rgba(0, 243, 255, 0.05);
+      border: 1px solid rgba(0, 243, 255, 0.15);
+      border-radius: 8px;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 12px;
+      color: #94a3b8;
+      min-height: 20px;
+    }
+    .telemetry-highlight {
+      color: #00f3ff;
+      font-weight: bold;
+    }
+    .form-group {
+      margin-top: 16px;
+    }
+    .form-group label {
+      display: block;
+      font-size: 12px;
+      font-weight: 600;
+      color: #94a3b8;
+      margin-bottom: 6px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+    .form-group input, .form-group select {
+      width: 100%;
+      padding: 10px 14px;
+      background: rgba(255, 255, 255, 0.04);
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      border-radius: 8px;
+      color: #fff;
+      font-size: 14px;
+      box-sizing: border-box;
+      outline: none;
+      transition: border-color 0.2s;
+    }
+    .form-group input:focus, .form-group select:focus {
+      border-color: #00f3ff;
+      box-shadow: 0 0 10px rgba(0, 243, 255, 0.2);
+    }
+    .btn-action-row {
+      display: flex;
+      gap: 12px;
+      margin-top: 20px;
+    }
+    .btn-enroll {
+      flex: 2;
+      background: linear-gradient(135deg, #00b4d8 0%, #0077b6 100%);
+      border: none;
+      border-radius: 8px;
+      color: #fff;
+      font-weight: 700;
+      padding: 12px;
+      font-size: 14px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      transition: all 0.2s ease;
+      box-shadow: 0 4px 15px rgba(0, 180, 216, 0.3);
+    }
+    .btn-enroll:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 6px 20px rgba(0, 180, 216, 0.5);
+    }
+    .btn-test {
+      flex: 1;
+      background: rgba(255, 255, 255, 0.06);
+      border: 1px solid rgba(0, 243, 255, 0.4);
+      border-radius: 8px;
+      color: #00f3ff;
+      font-weight: 600;
+      padding: 12px;
+      font-size: 13px;
+      cursor: pointer;
+      transition: all 0.2s ease;
+    }
+    .btn-test:hover {
+      background: rgba(0, 243, 255, 0.1);
+    }
+    .user-list {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      margin-top: 16px;
+      max-height: 480px;
+      overflow-y: auto;
+    }
+    .user-item {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 14px;
+      background: rgba(255, 255, 255, 0.02);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 10px;
+      transition: border-color 0.2s;
+    }
+    .user-item:hover {
+      border-color: rgba(0, 243, 255, 0.3);
+    }
+    .user-avatar {
+      width: 52px;
+      height: 52px;
+      border-radius: 50%;
+      overflow: hidden;
+      border: 2px solid #00f3ff;
+      box-shadow: 0 0 10px rgba(0, 243, 255, 0.3);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: #000;
+    }
+    .user-avatar img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+    }
+    .user-info {
+      flex: 1;
+      margin-left: 14px;
+    }
+    .user-name {
+      font-size: 15px;
+      font-weight: 600;
+      color: #f8fafc;
+    }
+    .user-role-badge {
+      display: inline-block;
+      font-size: 10px;
+      padding: 2px 8px;
+      border-radius: 4px;
+      background: rgba(0, 243, 255, 0.15);
+      color: #00f3ff;
+      font-family: 'JetBrains Mono', monospace;
+      text-transform: uppercase;
+      margin-left: 6px;
+    }
+    .user-meta {
+      font-size: 11px;
+      color: #64748b;
+      margin-top: 4px;
+    }
+    .btn-delete {
+      background: transparent;
+      border: 1px solid rgba(239, 68, 68, 0.3);
+      color: #ef4444;
+      padding: 6px 12px;
+      border-radius: 6px;
+      font-size: 12px;
+      cursor: pointer;
+      transition: all 0.2s ease;
+    }
+    .btn-delete:hover {
+      background: rgba(239, 68, 68, 0.15);
+      border-color: #ef4444;
+    }
+    .btn-launch-cooper {
+      width: 100%;
+      margin-top: 20px;
+      padding: 14px;
+      background: linear-gradient(135deg, #00f3ff 0%, #0077b6 100%);
+      border: none;
+      border-radius: 10px;
+      color: #03060c;
+      font-weight: 800;
+      font-size: 15px;
+      letter-spacing: 1px;
+      font-family: 'JetBrains Mono', monospace;
+      cursor: pointer;
+      box-shadow: 0 0 25px rgba(0, 243, 255, 0.4);
+      transition: all 0.2s ease;
+    }
+    .btn-launch-cooper:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 0 35px rgba(0, 243, 255, 0.7);
+    }
+  </style>
+</head>
+<body>
+  <div class="admin-container">
+    <header class="admin-header">
+      <div class="admin-logo">
+        <div class="admin-logo-icon">◎</div>
+        <div>
+          <h1 style="margin:0;font-size:22px;color:#fff;letter-spacing:1px;font-family:'JetBrains Mono',monospace;">COOPER BIOMETRIC ADMIN</h1>
+          <p style="margin:3px 0 0 0;font-size:12px;color:#64748b;">Operator Identity Management &amp; Facial Recognition Center</p>
+        </div>
+      </div>
+      <div style="display:flex;gap:12px;">
+        <a href="/" class="header-btn" style="text-decoration:none;padding:10px 16px;border-radius:8px;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.12);color:#fff;font-size:13px;display:flex;align-items:center;gap:6px;">← Return to Cooper Dashboard</a>
+      </div>
+    </header>
+
+    <div class="admin-grid">
+      <!-- Left Column: Live Scanner & Enrollment -->
+      <div class="admin-card">
+        <h2><span>📷</span> BIOMETRIC FACE ENROLLMENT</h2>
+        <div class="scanner-view">
+          <video id="adminCamVideo" class="scanner-video" playsinline muted autoplay></video>
+          <div id="adminReticle" class="scanner-reticle-box"></div>
+        </div>
+        <div id="adminTelemetry" class="telemetry-bar">
+          INITIALIZING BIOMETRIC NEURAL NETWORKS...
+        </div>
+
+        <div class="form-group">
+          <label for="adminUserName">Operator Name</label>
+          <input type="text" id="adminUserName" placeholder="e.g. Ihsan Ullah (Admin)" />
+        </div>
+
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+          <div class="form-group">
+            <label for="adminUserRole">Access Role</label>
+            <select id="adminUserRole">
+              <option value="admin">Admin (Full System Control)</option>
+              <option value="operator">Operator (Standard)</option>
+              <option value="guest">Guest (Restricted)</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label for="adminUserPin">Emergency Fallback PIN</label>
+            <input type="password" id="adminUserPin" placeholder="e.g. 1234" maxlength="8" />
+          </div>
+        </div>
+
+        <div class="btn-action-row">
+          <button id="adminEnrollBtn" class="btn-enroll">
+            <span>⚡</span> Capture &amp; Enroll Operator
+          </button>
+          <button id="adminTestBtn" class="btn-test">
+            🧪 Test Recognition
+          </button>
+        </div>
+      </div>
+
+      <!-- Right Column: Enrolled Operators Roster -->
+      <div class="admin-card">
+        <h2><span>👥</span> AUTHORIZED OPERATORS</h2>
+        <p style="font-size:12px;color:#94a3b8;margin:0 0 12px 0;">These operators are authenticated to unlock Cooper through real-time facial recognition.</p>
+        
+        <div id="adminUserList" class="user-list">
+          <div style="text-align:center;padding:30px;color:#64748b;">Loading enrolled operators...</div>
+        </div>
+
+        <button id="launchCooperBtn" class="btn-launch-cooper">
+          🔒 LOCK &amp; START COOPER FACE LOGIN
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <script src="/vendor/face-api/face-api.min.js"></script>
+  <script type="module">
+    import { faceAuth } from "/face/faceAuth.js";
+
+    const videoEl = document.getElementById("adminCamVideo");
+    const reticleEl = document.getElementById("adminReticle");
+    const telemetryEl = document.getElementById("adminTelemetry");
+    const userListEl = document.getElementById("adminUserList");
+
+    let isScanningLive = false;
+    let cameraStream = null;
+
+    async function initAdmin() {
+      telemetryEl.innerHTML = "<span class='telemetry-highlight'>[LOADING]</span> Loading face-api neural weights from local storage...";
+      const loaded = await faceAuth.loadModels();
+      if (!loaded) {
+        telemetryEl.innerHTML = "<span style='color:#ef4444;'>[ERROR]</span> Failed to load face recognition models.";
+        return;
+      }
+      telemetryEl.innerHTML = "<span class='telemetry-highlight'>[READY]</span> Neural networks active. Initializing webcam feed...";
+
+      await startCamera();
+      await loadUsers();
+      startContinuousDetection();
+    }
+
+    async function startCamera() {
+      try {
+        cameraStream = await navigator.mediaDevices.getUserMedia({
+          video: { width: { ideal: 640 }, height: { ideal: 480 }, facingMode: "user" },
+          audio: false
+        });
+        videoEl.srcObject = cameraStream;
+        await videoEl.play();
+        telemetryEl.innerHTML = "<span style='color:#00ffc2;'>[LIVE]</span> Webcam connected. Center face inside the reticle.";
+      } catch (err) {
+        telemetryEl.innerHTML = `<span style='color:#ef4444;'>[CAMERA ERROR]</span> ${err.message}. Please allow camera access in browser.`;
+      }
+    }
+
+    function startContinuousDetection() {
+      setInterval(async () => {
+        if (!videoEl || videoEl.paused || videoEl.ended || videoEl.readyState < 2) return;
+        try {
+          const detection = await faceAuth.detectFace(videoEl);
+
+          if (detection) {
+            reticleEl.classList.add("reticle-found");
+            const box = detection.box || detection.detection?.box;
+            const score = detection.score || detection.detection?.score || 0.95;
+            telemetryEl.innerHTML = `<span style='color:#00ffc2;font-weight:bold;'>[TARGET ACQUIRED]</span> Face detected at (${Math.round(box?.x || 0)}, ${Math.round(box?.y || 0)}) | Confidence: ${(score * 100).toFixed(1)}%`;
+          } else {
+            reticleEl.classList.remove("reticle-found");
+            telemetryEl.innerHTML = "<span class='telemetry-highlight'>[SCANNING]</span> Awaiting operator in viewport...";
+          }
+        } catch {
+          // ignore frame errors
+        }
+      }, 250);
+    }
+
+
+    async function loadUsers() {
+      try {
+        const res = await fetch("/api/users");
+        const data = await res.json();
+        const users = data.users || [];
+
+        if (users.length === 0) {
+          userListEl.innerHTML = `
+            <div style="text-align:center;padding:40px 20px;color:#64748b;background:rgba(255,255,255,0.01);border:1px dashed rgba(255,255,255,0.1);border-radius:10px;">
+              <div style="font-size:36px;margin-bottom:10px;">👤</div>
+              <p style="margin:0;font-weight:600;color:#cbd5e1;">No Operators Enrolled Yet</p>
+              <p style="margin:6px 0 0 0;font-size:12px;">Enter your name on the left and click "Capture &amp; Enroll Operator" to register your face.</p>
+            </div>
+          `;
+          return;
+        }
+
+        userListEl.innerHTML = users.map(u => `
+          <div class="user-item">
+            <div class="user-avatar">
+              ${u.avatar_thumb ? `<img src="${u.avatar_thumb}" alt="${escapeHtml(u.name)}" />` : '<span>👤</span>'}
+            </div>
+            <div class="user-info">
+              <div class="user-name">
+                ${escapeHtml(u.name)}
+                <span class="user-role-badge">${escapeHtml(u.role)}</span>
+              </div>
+              <div class="user-meta">
+                Enrolled: ${new Date(u.created_at).toLocaleDateString()}
+                ${u.last_login_at ? ` · Last active: ${new Date(u.last_login_at).toLocaleTimeString()}` : ''}
+              </div>
+            </div>
+            <button class="btn-delete" data-id="${u.id}">Revoke Access</button>
+          </div>
+        `).join("");
+
+        userListEl.querySelectorAll(".btn-delete").forEach(btn => {
+          btn.addEventListener("click", async (e) => {
+            const id = e.target.getAttribute("data-id");
+            if (confirm("Revoke biometric authorization for this operator?")) {
+              await fetch(`/api/users/${id}`, { method: "DELETE" });
+              await faceAuth.refreshDescriptors();
+              await loadUsers();
+            }
+          });
+        });
+      } catch (err) {
+        userListEl.innerHTML = `<div style="color:#ef4444;padding:12px;">Failed to load operators: ${err.message}</div>`;
+      }
+    }
+
+    // Enroll Operator
+    document.getElementById("adminEnrollBtn").addEventListener("click", async () => {
+      const nameInput = document.getElementById("adminUserName");
+      const roleInput = document.getElementById("adminUserRole");
+      const pinInput = document.getElementById("adminUserPin");
+      const name = nameInput.value.trim();
+
+      if (!name) {
+        alert("Please enter the Operator Name.");
+        nameInput.focus();
+        return;
+      }
+
+      telemetryEl.innerHTML = "<span class='telemetry-highlight'>[ENROLLING]</span> Extracting 128D neural facial embeddings...";
+
+      try {
+        const { descriptor, thumbnail } = await faceAuth.captureForEnrollment(videoEl);
+
+        telemetryEl.innerHTML = "<span class='telemetry-highlight'>[SAVING]</span> Storing encrypted biometric credentials in SQLite...";
+
+        const res = await fetch("/api/users/enroll", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            name,
+            role: roleInput.value,
+            face_descriptor: descriptor,
+            avatar_thumb: thumbnail,
+            pin_code: pinInput.value || null
+          })
+        });
+
+        const result = await res.json();
+        if (!res.ok) throw new Error(result.error || "Enrollment failed");
+
+        telemetryEl.innerHTML = `<span style='color:#00ffc2;font-weight:bold;'>[SUCCESS]</span> Operator "${name}" enrolled successfully!`;
+        nameInput.value = "";
+        pinInput.value = "";
+
+        await faceAuth.refreshDescriptors();
+        await loadUsers();
+      } catch (err) {
+        telemetryEl.innerHTML = `<span style='color:#ef4444;font-weight:bold;'>[ERROR]</span> ${err.message}`;
+      }
+    });
+
+    // Test Recognition
+    document.getElementById("adminTestBtn").addEventListener("click", async () => {
+      telemetryEl.innerHTML = "<span class='telemetry-highlight'>[TESTING]</span> Testing facial recognition against database...";
+      try {
+        await faceAuth.refreshDescriptors();
+        const { descriptor } = await faceAuth.captureForEnrollment(videoEl);
+
+        if (!faceAuth.matcher) {
+          telemetryEl.innerHTML = "<span style='color:#f59e0b;'>[NOTICE]</span> No operators enrolled in database yet.";
+          return;
+        }
+
+        const match = faceAuth.matcher.findBestMatch(new Float32Array(descriptor));
+        const confidence = ((1 - match.distance) * 100).toFixed(1);
+
+        if (match.label !== "unknown") {
+          telemetryEl.innerHTML = `<span style='color:#00ffc2;font-weight:bold;'>[MATCH CONFIRMED]</span> RECOGNIZED: ${match.label} (${confidence}% confidence score) ✓`;
+        } else {
+          telemetryEl.innerHTML = `<span style='color:#ef4444;font-weight:bold;'>[NO MATCH]</span> Unknown operator detected (Confidence too low).`;
+        }
+      } catch (err) {
+        telemetryEl.innerHTML = `<span style='color:#ef4444;'>[TEST ERROR]</span> ${err.message}`;
+      }
+    });
+
+    // Launch Cooper with Lock
+    document.getElementById("launchCooperBtn").addEventListener("click", async () => {
+      await fetch("/api/auth/lock", { method: "POST" });
+      window.location.href = "/?lock=1";
+    });
+
+    function escapeHtml(str) {
+      return String(str || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+    }
+
+    initAdmin();
+  </script>
+</body>
+</html>

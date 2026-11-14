@@ -10,6 +10,8 @@ const hudState = {
   ttsProvider: "openrouter",
   gmailConnected: false,
   gmailConfigured: false,
+  systemMode: false,
+  activeApprovalId: null,
 };
 
 const CHAT_LOG_KEY = "agentic-os.chatLog";
@@ -28,12 +30,12 @@ function logChat(role, content, extra = {}) {
   renderChatHistory();
 }
 
-function money(n, currency = "INR") {
+function money(n, currency = "PKR") {
   const v = Number(n || 0);
   try {
-    return new Intl.NumberFormat("en-IN", { style: "currency", currency, maximumFractionDigits: 0 }).format(v);
+    return new Intl.NumberFormat("en-PK", { style: "currency", currency, maximumFractionDigits: 0 }).format(v);
   } catch {
-    return `${currency} ${v.toLocaleString("en-IN")}`;
+    return `${currency} ${v.toLocaleString("en-PK")}`;
   }
 }
 
@@ -105,10 +107,38 @@ function renderExpenses(data) {
   const net = data.net ?? data.revenue - data.expense;
   $("#expNet").textContent = `${net >= 0 ? "+" : "−"}${money(Math.abs(net))}`;
 
+  // Spending Velocity / Burn Rate calculation
+  const now = new Date();
+  const dayOfMonth = now.getDate();
+  const daysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
+  const monthProgress = dayOfMonth / daysInMonth;
+  const burnPill = $("#burnRatePill");
+  if (burnPill) {
+    if (data.revenue > 0) {
+      const spendRatio = data.expense / data.revenue;
+      if (spendRatio > monthProgress * 1.3) {
+        burnPill.className = "burn-pill high";
+        burnPill.textContent = `⚡ Velocity: High (${Math.round(spendRatio * 100)}% burned in ${dayOfMonth}d)`;
+      } else if (spendRatio < monthProgress * 0.8) {
+        burnPill.className = "burn-pill low";
+        burnPill.textContent = `⚡ Velocity: Healthy (${Math.round(spendRatio * 100)}% budget)`;
+      } else {
+        burnPill.className = "burn-pill";
+        burnPill.textContent = `⚡ Velocity: Normal (${Math.round(spendRatio * 100)}%)`;
+      }
+    } else if (data.expense > 0) {
+      burnPill.className = "burn-pill";
+      burnPill.textContent = `⚡ Burn: ${money(Math.round(data.expense / dayOfMonth))}/day`;
+    } else {
+      burnPill.className = "burn-pill low";
+      burnPill.textContent = `⚡ Velocity: Healthy`;
+    }
+  }
+
   const cats = (data.byCategory?.expense || []).slice(0, 6);
   const box = $("#expCats");
   if (!cats.length) {
-    box.innerHTML = gmailCta("income & expenses", "No transactions in this range. Hit Sync, or add one manually.");
+    box.innerHTML = gmailCta("income & expenses", "No transactions in this range. Hit Sync or drop a statement.");
     return;
   }
   const max = Math.max(...cats.map((c) => c.total), 1);
@@ -130,6 +160,60 @@ $$("#expRange button").forEach((b) => b.addEventListener("click", () => {
   $$("#expRange button").forEach((x) => x.classList.toggle("active", x === b));
   loadExpenses();
 }));
+
+// ── Bank Statement PDF Dropzone ──────────────────────────────────
+const dropzone = $("#statementDropzone");
+const uploadBtn = $("#uploadStatementBtn");
+const fileInput = $("#statementFileInput");
+const dropBox = $("#dropzoneClick");
+const dropMsg = $("#dropzoneMsg");
+
+uploadBtn?.addEventListener("click", () => {
+  dropzone?.classList.toggle("hidden");
+});
+
+dropBox?.addEventListener("click", () => fileInput?.click());
+
+dropBox?.addEventListener("dragover", (e) => {
+  e.preventDefault();
+  dropBox.classList.add("drag-over");
+});
+dropBox?.addEventListener("dragleave", () => dropBox.classList.remove("drag-over"));
+dropBox?.addEventListener("drop", (e) => {
+  e.preventDefault();
+  dropBox.classList.remove("drag-over");
+  if (e.dataTransfer?.files?.length) handleStatementFile(e.dataTransfer.files[0]);
+});
+
+fileInput?.addEventListener("change", (e) => {
+  if (e.target.files?.length) handleStatementFile(e.target.files[0]);
+});
+
+async function handleStatementFile(file) {
+  if (!file) return;
+  if (!file.name.toLowerCase().endsWith(".pdf")) {
+    return toast("Please select a PDF bank statement.", "error");
+  }
+  if (!dropMsg) return;
+  dropMsg.className = "dropzone-msg";
+  dropMsg.textContent = `Analyzing ${file.name} with AI...`;
+  dropMsg.classList.remove("hidden");
+  try {
+    const b64 = await blobToBase64(file);
+    const r = await api("/api/expenses/upload-statement", {
+      method: "POST",
+      body: { filename: file.name, data: b64 },
+    });
+    dropMsg.className = "dropzone-msg success";
+    dropMsg.textContent = `✓ Extracted & saved ${r.count} transactions from ${file.name}`;
+    toast(`Extracted ${r.count} transactions!`, "success");
+    loadExpenses();
+  } catch (err) {
+    dropMsg.className = "dropzone-msg error";
+    dropMsg.textContent = `Error: ${err.message}`;
+    toast(err.message, "error");
+  }
+}
 
 // ── Recent mail ──────────────────────────────────────────────────
 function renderMail(messages) {
@@ -217,7 +301,7 @@ const voice = {
   recording: false,
   stream: null, audioCtx: null, analyser: null, recorder: null, levelRAF: 0,
 };
-const VAD = { speakThresh: 0.045, silenceMs: 1300, noSpeechMs: 7000, maxTurnMs: 20000 };
+const VAD = { speakThresh: 0.022, silenceMs: 2800, noSpeechMs: 8000, maxTurnMs: 30000 };
 
 function setAssistantState(state, label) {
   const el = $("#assistantStatus");
@@ -233,6 +317,73 @@ function showReply(html) {
   box.classList.add("show");
 }
 
+function showPermissionCard(id, summary) {
+  hudState.activeApprovalId = id;
+  const card = $("#permissionCard");
+  const summaryEl = $("#permSummary");
+  if (card && summaryEl) {
+    summaryEl.textContent = summary || "Permission requested to execute system action.";
+    card.classList.remove("hidden");
+  }
+}
+
+function hidePermissionCard() {
+  hudState.activeApprovalId = null;
+  $("#permissionCard")?.classList.add("hidden");
+}
+
+async function approvePendingAction() {
+  const id = hudState.activeApprovalId;
+  if (!id) return;
+  hidePermissionCard();
+  try {
+    toast("Executing system action…", "info");
+    const r = await api("/api/assistant/approve", { method: "POST", body: { id } });
+    toast("Action completed successfully", "success");
+    const reply = r.result?.message || "System action executed.";
+    showReply(`<div class="reply-text">${escapeHtml(reply)}</div>`);
+    logChat("assistant", reply);
+  } catch (e) {
+    toast(e.message, "error");
+  }
+}
+
+async function denyPendingAction() {
+  const id = hudState.activeApprovalId;
+  if (!id) return;
+  hidePermissionCard();
+  try {
+    await api("/api/assistant/deny", { method: "POST", body: { id } });
+    toast("Action cancelled", "info");
+    showReply(`<div class="reply-text">Action cancelled.</div>`);
+  } catch (e) {
+    toast(e.message, "error");
+  }
+}
+
+$("#permApproveBtn")?.addEventListener("click", approvePendingAction);
+$("#permDenyBtn")?.addEventListener("click", denyPendingAction);
+
+function updateSysModeUI(enabled) {
+  hudState.systemMode = Boolean(enabled);
+  const btn = $("#sysModeBtn");
+  if (btn) {
+    btn.textContent = `⚡ System Mode: ${enabled ? "ON" : "OFF"}`;
+    btn.classList.toggle("active", Boolean(enabled));
+  }
+}
+
+async function toggleSysMode() {
+  try {
+    const r = await api("/api/system/toggle", { method: "POST" });
+    updateSysModeUI(r.enabled);
+    toast(`System Automation Mode: ${r.enabled ? "ENABLED" : "DISABLED"}`, r.enabled ? "success" : "info");
+  } catch (e) {
+    toast(e.message, "error");
+  }
+}
+$("#sysModeBtn")?.addEventListener("click", toggleSysMode);
+
 function blobToBase64(blob) {
   return new Promise((resolve) => {
     const fr = new FileReader();
@@ -245,23 +396,52 @@ function blobToBase64(blob) {
 async function speak(text) {
   if (!text) return;
   setAssistantState("speaking", "Speaking…");
-  if (hudState.ttsProvider === "openrouter") {
+  
+  // Detect if text contains Urdu / Arabic script
+  const isUrdu = /[\u0600-\u06FF\u0750-\u077F\uFB50-\uFDFF\uFE70-\uFEFF]/.test(text);
+  const isHindi = /[\u0900-\u097F]/.test(text);
+
+  if (hudState.ttsProvider !== "browser") {
     try {
       const r = await api("/api/assistant/speak", { method: "POST", body: { text } });
-      await new Promise((resolve) => {
-        const audio = new Audio(`data:${r.mime};base64,${r.audio}`);
-        audio.onended = audio.onerror = resolve;
-        audio.play().catch(resolve);
-      });
-      setAssistantState("idle", "Idle");
-      return;
+      const audioData = r?.audio || r?.b64;
+      if (audioData) {
+        await new Promise((resolve) => {
+          const audio = new Audio(`data:${r.mime || "audio/mp3"};base64,${audioData}`);
+          audio.onended = audio.onerror = resolve;
+          audio.play().catch(resolve);
+        });
+        setAssistantState("idle", "Idle");
+        return;
+      }
     } catch { /* fall back to browser voice */ }
   }
+
   if ("speechSynthesis" in window) {
     await new Promise((resolve) => {
       window.speechSynthesis.cancel();
       const u = new SpeechSynthesisUtterance(text);
-      u.rate = 1.02; u.pitch = 0.95;
+      u.rate = 1.0; 
+      u.pitch = 0.95;
+
+      // Assign matching language code
+      if (isUrdu) u.lang = "ur-PK";
+      else if (isHindi) u.lang = "hi-IN";
+      else u.lang = hudState.language || "en-US";
+
+      // Select suitable voice if available in OS
+      const voices = window.speechSynthesis.getVoices() || [];
+      if (isUrdu) {
+        const v = voices.find((x) => x.lang.startsWith("ur") || x.lang.startsWith("ar"));
+        if (v) u.voice = v;
+      } else if (isHindi) {
+        const v = voices.find((x) => x.lang.startsWith("hi"));
+        if (v) u.voice = v;
+      } else {
+        const v = voices.find((x) => x.lang.startsWith("en-GB") || x.lang.startsWith("en"));
+        if (v) u.voice = v;
+      }
+
       u.onend = u.onerror = resolve;
       window.speechSynthesis.speak(u);
     });
@@ -292,12 +472,13 @@ function typeOut(el, text) {
 
 // One assistant turn over the streaming endpoint. `speakReply` is true for voice
 // turns (auto re-listen) and false for typed turns (silent, fast text).
-// When Jarvis mutates data via tools, reflect it in the HUD immediately so the
-// user sees the change live (e.g. a checked-off task) without a manual refresh.
 function refreshAfterActions(final) {
   const actions = final?.actions || [];
   const TASK_ACTIONS = ["add_task", "complete_task", "delete_task"];
   if (actions.some((a) => TASK_ACTIONS.includes(a))) loadTasks();
+  if (actions.includes("toggle_system_mode")) {
+    api("/api/system/status").then((s) => updateSysModeUI(s.enabled)).catch(() => {});
+  }
   if (final?.draftId) toast("Draft saved to the Studio.", "ok");
 }
 
@@ -330,6 +511,8 @@ async function sendToAssistant(text, { speakReply = false } = {}) {
         acked = true;
         setAssistantState("thinking", "Working…");
         showReply(`<div class="ack-note">${escapeHtml(ev.reply)}</div>`);
+      } else if (ev.phase === "permission") {
+        showPermissionCard(ev.approvalId, ev.summary);
       } else if (ev.phase === "error") {
         throw new Error(ev.error || "Assistant error");
       } else if (ev.phase === "final") {
@@ -353,6 +536,11 @@ async function sendToAssistant(text, { speakReply = false } = {}) {
 
     if (!final) throw new Error("No reply");
     const reply = final.reply || (final.type === "image" ? "Here is the image." : "");
+
+    // If permission was required, show permission card
+    if (final.pendingApproval) {
+      showPermissionCard(final.pendingApproval.id, final.pendingApproval.summary);
+    }
 
     // Render the answer with a typewriter reveal, then append any image.
     const box = $("#assistantReply");
@@ -452,7 +640,22 @@ async function recordTurn() {
       const { text } = await api("/api/assistant/transcribe", { method: "POST", body: { audio: b64, format: "webm" } });
       const said = (text || "").trim();
       if (!said) { setAssistantState("idle", "Idle"); if (voice.conversing) recordTurn(); return; }
-      if (/^\s*(stop|cancel|that's all|thank you,? jarvis)\.?\s*$/i.test(said)) { stopConversation(); return; }
+      if (/^\s*(stop|cancel|that's all|thank you,? (cooper|jarvis))\.?\s*$/i.test(said)) { stopConversation(); return; }
+
+      // Spoken approval handling if a permission prompt is pending
+      if (hudState.activeApprovalId) {
+        if (/^\s*(yes|allow|approve|proceed|confirm|do it|go ahead|sure|ok|okay)\b/i.test(said)) {
+          await approvePendingAction();
+          if (voice.conversing) recordTurn();
+          return;
+        }
+        if (/^\s*(no|deny|don'?t|cancel|nevermind|stop)\b/i.test(said)) {
+          await denyPendingAction();
+          if (voice.conversing) recordTurn();
+          return;
+        }
+      }
+
       $("#assistantInput").value = said;
       await sendToAssistant(said, { speakReply: true });
       if (voice.conversing) recordTurn();          // continuous: listen again
@@ -538,6 +741,111 @@ $("#chatHistoryClear")?.addEventListener("click", () => {
   renderChatHistory();
 });
 
+// ── Proactive Autonomous Briefing ────────────────────────────────
+let currentBriefing = null;
+
+async function loadBriefing() {
+  try {
+    const b = await api("/api/briefings/latest?type=morning");
+    if (!b || !b.text) return;
+    currentBriefing = b;
+    const banner = $("#briefingBanner");
+    const titleEl = $("#briefingBadge");
+    const snippetEl = $("#briefingSnippet");
+    const audioEl = $("#briefingAudioEl");
+
+    if (titleEl) titleEl.textContent = b.type === "evening" ? "Evening Briefing Ready" : "Morning Briefing Ready";
+    if (snippetEl) snippetEl.textContent = b.text.slice(0, 180) + "...";
+    if (audioEl && b.audio_path) audioEl.src = b.audio_path;
+
+    if (!b.played) {
+      banner?.classList.remove("hidden");
+    }
+  } catch {
+    // Briefing endpoint not ready or empty
+  }
+}
+
+$("#briefingPlayBtn")?.addEventListener("click", async () => {
+  const audioEl = $("#briefingAudioEl");
+  const playBtn = $("#briefingPlayBtn");
+  if (audioEl && audioEl.src && !audioEl.paused) {
+    audioEl.pause();
+    playBtn.textContent = "▶ Resume Briefing";
+    return;
+  }
+  if (audioEl && audioEl.src) {
+    try {
+      await audioEl.play();
+      playBtn.textContent = "⏸ Pause Briefing";
+      audioEl.onended = () => {
+        playBtn.textContent = "▶ Replay Briefing";
+        if (currentBriefing?.id) api(`/api/briefings/${currentBriefing.id}/played`, { method: "POST" }).catch(() => {});
+      };
+      return;
+    } catch { /* Audio playback was blocked, try synthesizing */ }
+  }
+  if (currentBriefing?.text) {
+    try {
+      toast("Synthesizing audio briefing...", "info");
+      const r = await api("/api/assistant/speak", { method: "POST", body: { text: currentBriefing.text.slice(0, 1500) } });
+      const b64 = r?.audio || r?.b64;
+      if (b64 && audioEl) {
+        audioEl.src = `data:audio/mp3;base64,${b64}`;
+        await audioEl.play();
+        playBtn.textContent = "⏸ Pause Briefing";
+        audioEl.onended = () => {
+          playBtn.textContent = "▶ Replay Briefing";
+          if (currentBriefing?.id) api(`/api/briefings/${currentBriefing.id}/played`, { method: "POST" }).catch(() => {});
+        };
+        return;
+      }
+    } catch (err) {
+      if ("speechSynthesis" in window) {
+        toast("Playing briefing via browser voice...", "info");
+        window.speechSynthesis.cancel();
+        const u = new SpeechSynthesisUtterance(currentBriefing.text.slice(0, 1500));
+        playBtn.textContent = "⏸ Playing (Browser)";
+        u.onend = u.onerror = () => { playBtn.textContent = "▶ Replay Briefing"; };
+        window.speechSynthesis.speak(u);
+        return;
+      }
+      toast(err.message, "error");
+    }
+  }
+});
+
+$("#briefingRefreshBtn")?.addEventListener("click", async () => {
+  try {
+    toast("Generating fresh briefing...", "info");
+    $("#briefingSnippet").textContent = "Generating your personalized briefing...";
+    const b = await api("/api/briefings/generate", { method: "POST", body: { type: "morning", generateAudio: true } });
+    currentBriefing = b;
+    $("#briefingSnippet").textContent = b.text.slice(0, 180) + "...";
+    if ($("#briefingAudioEl") && b.audio_path) $("#briefingAudioEl").src = b.audio_path;
+    $("#briefingBanner")?.classList.remove("hidden");
+    toast("Briefing ready!", "success");
+  } catch (err) { toast(err.message, "error"); }
+});
+
+$("#briefingDismissBtn")?.addEventListener("click", () => {
+  $("#briefingBanner")?.classList.add("hidden");
+  if (currentBriefing?.id) api(`/api/briefings/${currentBriefing.id}/played`, { method: "POST" }).catch(() => {});
+  const audioEl = $("#briefingAudioEl");
+  if (audioEl && !audioEl.paused) audioEl.pause();
+});
+
+// ── Quick Action Chips ──────────────────────────────────────────
+$$(".quick-chips .chip-btn").forEach((b) => {
+  b.addEventListener("click", () => {
+    const prompt = b.dataset.prompt;
+    if (!prompt) return;
+    const input = $("#assistantInput");
+    if (input) input.value = prompt;
+    sendToAssistant(prompt, { speakReply: false });
+  });
+});
+
 // ── Aggregate load (called by app.js showView('home')) ───────────
 async function loadDashboard() {
   try {
@@ -549,13 +857,21 @@ async function loadDashboard() {
     renderExpenses(d.expenses);
     renderMail(d.mail);
     renderTasks(d.tasks);
+    loadBriefing();
+    if (d.gmail?.connected) {
+      api("/api/mail?fresh=1").then((freshMail) => {
+        if (Array.isArray(freshMail) && freshMail.length) renderMail(freshMail);
+      }).catch(() => {});
+    }
+    api("/api/system/status").then((s) => updateSysModeUI(s.enabled)).catch(() => {});
   } catch (e) {
     // Fall back to independent loads so one failure doesn't blank the HUD.
-    loadExpenses(); loadTasks();
+    loadExpenses(); loadTasks(); loadBriefing();
+    api("/api/system/status").then((s) => updateSysModeUI(s.enabled)).catch(() => {});
   }
 }
 
-window.HUD = { load: loadDashboard };
+window.HUD = { load: loadDashboard, loadBriefing };
 
 // Restore prior conversation so it survives reloads, and show the pill.
 loadChatLog();

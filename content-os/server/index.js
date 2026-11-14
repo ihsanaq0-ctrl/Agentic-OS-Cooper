@@ -1,5 +1,6 @@
 import express from "express";
 import { join } from "path";
+import { readdirSync, existsSync } from "fs";
 import { config, ROOT_DIR, serviceStatus } from "./config.js";
 import {
   getAllSettings, setSetting,
@@ -9,12 +10,13 @@ import {
   listDrafts, getDraft, createDraft, updateDraft, listVersions,
   addDraftImage, listDraftImages,
   listScheduledPosts, createScheduledPost, updateScheduledPost,
-  listAccounts, upsertAccount, deleteAccount,
+  listAccounts, upsertAccount, deleteAccount, getAccountById, getAccountByPlatform,
   createTask, listTasks, updateTask, deleteTask, getTask,
   getGmailTokens, clearGmailTokens,
-  listMailMessages,
+  listMailMessages, getSetting,
   insertTransaction, listTransactions, sumByCategory, revenueVsExpense,
   insertArticle,
+  createUser, listUsers, getUser, deleteUser, updateUserLogin, getUserCount, getAllFaceDescriptors,
 } from "./db.js";
 import { enqueueSourceJob, queueSize } from "./jobRunner.js";
 import { subscribeJob, subscribeGlobal, broadcastGlobal } from "./sse.js";
@@ -24,19 +26,72 @@ import { generateCaption, refineCaption, generateDraftImage } from "./ai/content
 import { listImageModels, transcribeAudio, textToSpeech } from "./ai/openrouter.js";
 import { rankPendingArticles } from "./ai/rankArticles.js";
 import {
-  SUPPORTED_PLATFORMS, getConnectUrl, fetchAccounts, uploadMedia, createPost,
-} from "./zernio.js";
-import { handleZernioWebhook } from "./webhooks/zernio.js";
+  linkedinConfigured, buildAuthUrl as buildLinkedInAuthUrl, exchangeCode as exchangeLinkedInCode, publishLinkedInPost,
+} from "./publishers/linkedin.js";
+import { telegramConfigured, publishTelegramPost } from "./publishers/telegram.js";
+import {
+  githubConfigured, buildAuthUrl as buildGithubAuthUrl, exchangeCode as exchangeGithubCode,
+} from "./publishers/github.js";
+import { discordConfigured, publishDiscordPost } from "./publishers/discord.js";
+import { twitterConfigured, publishTwitterPost } from "./publishers/twitter.js";
+import { generateBriefing, getOrGenerateBriefing } from "./ai/briefing.js";
+import { markBriefingPlayed, listBriefings, getLatestBriefing } from "./db.js";
 import { askAssistant, askAssistantStream } from "./ai/assistant.js";
 import { buildAuthUrl, exchangeCode, gmailConfigured } from "./google/oauth.js";
 import { syncMail, syncExpenses, startAutoSync } from "./autoSync.js";
+import { isSystemModeEnabled } from "./system/controller.js";
+
+import voiceRouter from "./routes/voice.js";
+import { setupWebSocket } from "./websockets/stream.js";
+
+import { generateCarouselContent, renderCarouselPdf } from "./ai/carousel.js";
+import { parseBankStatementPdf } from "./ai/bankStatementParser.js";
+import { registerBarehandsBridge, setRingState } from "./barehands-bridge.js";
+import { registerJarvisCvBridge } from "./jarvis-cv-bridge.js";
+import { registerJarvisFlowBridge } from "./jarvisflow-bridge.js";
+import { registerIronHandsBridge } from "./ironhands-bridge.js";
+import { registerGodsEyeBridge } from "./godseye-bridge.js";
+import { registerGestureActionRoutes } from "./system/gestureActionRouter.js";
+import { getAgentMemoryInfo, ensureAgentMemoryRunning } from "./system/agentmemoryService.js";
+import { getOpenVikingInfo, ensureOpenVikingRunning } from "./system/openvikingService.js";
+import { getVoiceStudioInfo, ensureVoiceStudioRunning } from "./system/voiceStudioService.js";
+import { googleTtsConfigured } from "./ai/googleTts.js";
+import { getUnifiedMemoryStatus, recall } from "./ai/memory.js";
+import { generateDiagram } from "./ai/diagramGenerator.js";
+import { runBrowserTask, getBrowserAgentStatus } from "./system/browserAgentBridge.js";
+import { searchScientificLiterature, getScientificEngineStatus } from "./ai/scientificResearch.js";
+import {
+  getAuthStatus, isSystemLocked, lockSystem, unlockWithFace, unlockWithPin,
+  triggerOpenBiometricPortal, getCurrentOperator, listEnrolledOperators,
+} from "./system/security.js";
 
 recoverStaleJobs();
 
 const app = express();
-app.use(express.json({ limit: "4mb" }));
+app.use(express.json({ limit: "25mb" }));
 app.use(express.static(join(ROOT_DIR, "public")));
 app.use("/storage", express.static(join(ROOT_DIR, "storage")));
+
+// Register Bare Hands gesture bridge
+registerBarehandsBridge(app);
+
+// Register Jarvis-CV Stark HUD & Sound Engine bridge
+registerJarvisCvBridge(app);
+
+// Register JarvisFlow Gesture Mind-Mapping bridge
+registerJarvisFlowBridge(app);
+
+// Register IronHands 3D Spatial Kinetic bridge
+registerIronHandsBridge(app);
+
+// Register God's Eye View Geospatial Intelligence bridge
+registerGodsEyeBridge(app);
+
+// Register Unified Hand Gesture System Action Controller
+registerGestureActionRoutes(app);
+
+// Mount Voice & Assistant Routes
+app.use("/api", voiceRouter);
 
 const ok = (res, data) => res.json(data);
 const fail = (res, code, msg) => res.status(code).json({ error: msg });
@@ -88,7 +143,8 @@ app.get("/api/health", (_req, res) => ok(res, {
   time: new Date().toISOString(),
   services: serviceStatus(),
   queue: queueSize(),
-  platforms: SUPPORTED_PLATFORMS,
+  platforms: ["linkedin", "instagram", "twitter"],
+  systemMode: isSystemModeEnabled(),
 }));
 
 // ── Settings ─────────────────────────────────────────────────────
@@ -292,46 +348,135 @@ app.post("/api/drafts/:id/image", (req, res) => {
   res.status(202).json({ status: "generating", aspectRatio });
 });
 
-// ── Accounts (Settings → connect IG / LinkedIn / X) ──────────────
-app.get("/api/accounts", (_req, res) => ok(res, listAccounts()));
+// ── PDF Carousel Generator (LinkedIn Document Slides) ───────────
+app.post("/api/drafts/:id/carousel", asyncRoute(async (req, res) => {
+  const draft = getDraft(req.params.id);
+  if (!draft) return fail(res, 404, "Draft not found");
+
+  const carouselData = await generateCarouselContent(draft.caption || draft.title || "AI Systems Architecture", {
+    brandVoice: getAllSettings().brand_voice,
+    numSlides: Number(req.body?.numSlides) || 5,
+  });
+
+  const r = await renderCarouselPdf(carouselData, { authorName: "IHSAN ULLAH" });
+  updateDraft(draft.id, {
+    image_path: r.relativePath,
+    image_prompt: `Carousel: ${carouselData.title}`,
+    image_status: "ready",
+  });
+  broadcastGlobal({ type: "draft-image", draftId: draft.id, status: "ready", imagePath: r.relativePath });
+  ok(res, { ok: true, carouselPath: r.relativePath, title: carouselData.title, slides: carouselData.slides });
+}));
+
+// ── Accounts (Settings → connect LinkedIn / IG / X) ──────────────
+app.get("/api/accounts", (_req, res) => {
+  const accounts = listAccounts();
+  const all = [...accounts];
+  if (telegramConfigured() && !all.some((a) => a.platform === "telegram")) {
+    all.push({
+      id: "direct-telegram",
+      platform: "telegram",
+      display_name: config.telegramChannelId || "Telegram Channel",
+      username: config.telegramChannelId || "Channel",
+      status: "active",
+    });
+  }
+  if (discordConfigured() && !all.some((a) => a.platform === "discord")) {
+    all.push({
+      id: "direct-discord",
+      platform: "discord",
+      display_name: "Discord Webhook",
+      username: "Webhook",
+      status: "active",
+    });
+  }
+  if (twitterConfigured() && !all.some((a) => a.platform === "twitter")) {
+    all.push({
+      id: "direct-twitter",
+      platform: "twitter",
+      display_name: "X (Twitter)",
+      username: "Direct API",
+      status: "active",
+    });
+  }
+  ok(res, all);
+});
 
 app.get("/api/accounts/connect/:platform", async (req, res) => {
+  const platform = req.params.platform;
   try {
-    const url = await getConnectUrl(req.params.platform);
-    ok(res, { url });
+    if (platform === "linkedin") {
+      if (linkedinConfigured()) {
+        return ok(res, { url: buildLinkedInAuthUrl() });
+      }
+      return fail(res, 400, "LinkedIn direct API not configured — set LINKEDIN_CLIENT_ID in .env");
+    }
+    if (platform === "telegram") {
+      if (telegramConfigured()) {
+        return ok(res, { message: `Telegram channel ${config.telegramChannelId} is active.` });
+      }
+      return fail(res, 400, "Telegram not configured — set TELEGRAM_BOT_TOKEN and TELEGRAM_CHANNEL_ID in .env");
+    }
+    if (platform === "discord") {
+      if (discordConfigured()) {
+        return ok(res, { message: "Discord webhook is active." });
+      }
+      return fail(res, 400, "Discord not configured — set DISCORD_WEBHOOK_URL in .env");
+    }
+    if (platform === "twitter") {
+      if (twitterConfigured()) {
+        return ok(res, { message: "Twitter API credentials are active." });
+      }
+      return fail(res, 400, "Twitter not configured — set TWITTER_API_KEY, TWITTER_API_SECRET, etc. in .env");
+    }
+    if (platform === "github") {
+      if (githubConfigured()) {
+        return ok(res, { url: buildGithubAuthUrl() });
+      }
+      return fail(res, 400, "GitHub not configured — set GITHUB_CLIENT_ID in .env");
+    }
+    return fail(res, 400, `Direct integration for ${platform} is coming next.`);
   } catch (err) {
-    // Strip the internal "Zernio /connect/...:" prefix for a clean UI message.
-    const clean = err.message.replace(/^Zernio \/[^:]+:\s*/, "");
-    const code =
-      err.code === "PAYMENT_REQUIRED" ? 402 :
-      err.code === "UPSTREAM_UNREACHABLE" ? 503 :
-      err.status >= 400 && err.status < 600 ? err.status :
-      502;
-    res.status(code).json({ error: clean, code: err.code });
+    res.status(500).json({ error: err.message });
   }
 });
 
-// Zernio redirects here after the user finishes OAuth. Standard mode appends
-// ?connected={platform}&accountId=Y&username=Z — capture it, then resync.
-app.get("/api/accounts/callback", asyncRoute(async (req, res) => {
-  const { connected, platform, accountId, username } = req.query;
-  if (accountId && (platform || connected)) {
-    upsertAccount({
-      zernio_account_id: String(accountId),
-      platform: String(platform || connected),
-      username: username ? String(username) : null,
-    });
+// GitHub OAuth Callback
+app.get("/api/auth/github/callback", asyncRoute(async (req, res) => {
+  const { code, error, error_description } = req.query;
+  if (error) {
+    return res.redirect(`/?error=${encodeURIComponent(error_description || error)}#settings`);
+  }
+  if (!code) {
+    return res.redirect("/?error=missing_code#settings");
   }
   try {
-    const accounts = await fetchAccounts();
-    for (const a of accounts) upsertAccount(a);
-  } catch { /* surfaced on next manual sync */ }
-  res.redirect("/?connected=1#settings");
+    await exchangeGithubCode(code);
+    res.redirect("/?connected=github#settings");
+  } catch (e) {
+    res.redirect(`/?error=${encodeURIComponent(e.message)}#settings`);
+  }
+}));
+
+// LinkedIn Direct OAuth Callback
+app.get("/api/auth/linkedin/callback", asyncRoute(async (req, res) => {
+  const { code, error, error_description } = req.query;
+  if (error) {
+    return res.redirect(`/?error=${encodeURIComponent(error_description || error)}#settings`);
+  }
+  if (!code) {
+    return res.redirect("/?error=missing_code#settings");
+  }
+  try {
+    await exchangeLinkedInCode(String(code));
+    res.redirect("/?connected=linkedin#settings");
+  } catch (err) {
+    console.error("LinkedIn OAuth callback error:", err.message);
+    res.redirect(`/?error=${encodeURIComponent(err.message)}#settings`);
+  }
 }));
 
 app.post("/api/accounts/sync", asyncRoute(async (_req, res) => {
-  const accounts = await fetchAccounts();
-  for (const a of accounts) upsertAccount(a);
   ok(res, listAccounts());
 }));
 
@@ -339,6 +484,8 @@ app.delete("/api/accounts/:id", (req, res) => {
   deleteAccount(req.params.id);
   ok(res, { ok: true });
 });
+
+// System Automation routes have been extracted to routes/voice.js
 
 // ── Scheduling ───────────────────────────────────────────────────
 app.get("/api/scheduled", (_req, res) => ok(res, listScheduledPosts()));
@@ -351,38 +498,199 @@ app.post("/api/drafts/:id/schedule", asyncRoute(async (req, res) => {
   if (!Array.isArray(platforms) || !platforms.length) {
     return fail(res, 400, "Select at least one platform/account");
   }
+
+  const directResults = [];
+
   for (const p of platforms) {
-    if (!SUPPORTED_PLATFORMS.includes(p.platform)) return fail(res, 400, `Unsupported platform: ${p.platform}`);
-    if (!p.accountId) return fail(res, 400, "Each platform needs an accountId");
+    const acct = getAccountById(p.accountId) || (p.platform ? getAccountByPlatform(p.platform) : null);
+    if (p.platform === "linkedin" && (acct?.access_token || linkedinConfigured())) {
+      const pubRes = await publishLinkedInPost({
+        accountId: acct?.id,
+        content: draft.caption,
+        mediaPath: draft.image_path,
+      });
+      directResults.push({ platform: "linkedin", id: pubRes.id, status: pubRes.status, url: pubRes.url });
+    } else if (p.platform === "telegram" && telegramConfigured()) {
+      const pubRes = await publishTelegramPost({
+        content: draft.caption,
+        mediaPath: draft.image_path,
+      });
+      directResults.push({ platform: "telegram", id: pubRes.id, status: pubRes.status, url: pubRes.url });
+    } else if (p.platform === "discord" && discordConfigured()) {
+      const pubRes = await publishDiscordPost({
+        content: draft.caption,
+        mediaPath: draft.image_path,
+      });
+      directResults.push({ platform: "discord", id: pubRes.id, status: pubRes.status, url: pubRes.url });
+    } else if (p.platform === "twitter" && twitterConfigured()) {
+      const pubRes = await publishTwitterPost({
+        content: draft.caption,
+        mediaPath: draft.image_path,
+      });
+      directResults.push({ platform: "twitter", id: pubRes.id, status: pubRes.status, url: pubRes.url });
+    } else {
+      return fail(res, 400, `Platform ${p.platform} requires direct configuration in .env.`);
+    }
   }
 
-  const mediaUrls = [];
-  if (draft.image_path) mediaUrls.push(await uploadMedia(draft.image_path));
-
-  const post = await createPost({
-    content: draft.caption,
-    scheduledFor,
-    publishNow: Boolean(publishNow),
-    timezone: getAllSettings().timezone,
-    platforms,
-    mediaUrls,
-  });
+  const primaryPostId = directResults[0]?.id || `post-${Date.now()}`;
+  const overallStatus = "published";
+  const publishedNames = directResults.map((r) => r.platform).join(", ");
+  const detail = `Published directly to: ${publishedNames} (ID: ${primaryPostId})`;
 
   const scheduled = createScheduledPost({
     draft_id: draft.id,
-    zernio_post_id: post.id,
+    zernio_post_id: primaryPostId,
     scheduled_for: scheduledFor || new Date().toISOString(),
     timezone: getAllSettings().timezone,
     platforms,
-    status: publishNow ? "published" : "scheduled",
-    status_detail: post.status,
+    status: overallStatus,
+    status_detail: detail,
   });
-  updateDraft(draft.id, { status: "scheduled" });
-  res.status(201).json(scheduled);
+  updateDraft(draft.id, { status: overallStatus });
+  res.status(201).json({ ...scheduled, results: directResults });
 }));
 
-// ── Webhooks ─────────────────────────────────────────────────────
-app.post("/api/webhooks/zernio", handleZernioWebhook);
+// ── Proactive Briefings ──────────────────────────────────────────
+app.get("/api/briefings/latest", asyncRoute(async (req, res) => {
+  const type = req.query.type || "morning";
+  const briefing = await getOrGenerateBriefing(type);
+  ok(res, briefing);
+}));
+
+app.post("/api/briefings/generate", asyncRoute(async (req, res) => {
+  const type = req.body?.type || "morning";
+  const audio = req.body?.generateAudio !== false;
+  const briefing = await generateBriefing(type, { generateAudio: audio });
+  broadcastGlobal({ type: "briefing:ready", briefing });
+  ok(res, briefing);
+}));
+
+app.post("/api/briefings/:id/played", (req, res) => {
+  markBriefingPlayed(req.params.id);
+  ok(res, { ok: true });
+});
+
+app.get("/api/briefings", (req, res) => {
+  const limit = Math.min(50, Number(req.query.limit) || 10);
+  ok(res, listBriefings({ limit }));
+});
+
+// ── Local LLM (Ollama) Inspection ────────────────────────────────
+app.get("/api/models/ollama", asyncRoute(async (_req, res) => {
+  if (!config.ollamaBaseUrl) return ok(res, { available: false, models: [] });
+  try {
+    const baseUrl = config.ollamaBaseUrl.replace(/\/v1\/?$/, "");
+    const resp = await fetch(`${baseUrl}/api/tags`, { signal: AbortSignal.timeout(3000) });
+    if (!resp.ok) return ok(res, { available: false, models: [] });
+    const data = await resp.json();
+    ok(res, { available: true, models: data.models || [] });
+  } catch {
+    ok(res, { available: false, models: [] });
+  }
+}));
+
+// ── Unified Cognitive Memory Status & Multi-Tier Search ───────────
+app.get("/api/memory/status", asyncRoute(async (_req, res) => {
+  const unified = await getUnifiedMemoryStatus();
+  ok(res, unified);
+}));
+
+app.get("/api/memory/search", asyncRoute(async (req, res) => {
+  const query = String(req.query.q || req.query.query || "").trim();
+  if (!query) return fail(res, 400, "Query parameter 'q' is required");
+  const limit = Math.min(parseInt(req.query.limit, 10) || 5, 20);
+  const hybrid = req.query.hybrid === "true" || req.query.hybrid === "1";
+  const viking = req.query.viking === "true" || req.query.viking === "1";
+  const results = await recall(query, {
+    limit,
+    hybrid,
+    viking,
+    targetUri: req.query.uri || undefined,
+  });
+  ok(res, { query, count: results.length, results });
+}));
+
+// ── VoiceStudio & Speech Engine Status ────────────────────────────
+app.get("/api/speech/status", asyncRoute(async (_req, res) => {
+  const vsInfo = await getVoiceStudioInfo();
+  ok(res, {
+    active_engine: vsInfo.alive ? "voicestudio" : "google_tts",
+    voicestudio: vsInfo,
+    google_tts: {
+      configured: googleTtsConfigured(),
+      voice: config.googleTtsVoice || "en-US-Journey-F",
+    },
+    cloud_fallback: {
+      openrouter: Boolean(config.openrouterApiKey),
+      groq_stt: Boolean(config.groqApiKey),
+    },
+  });
+}));
+
+// ── Editorial Vector Diagrams ─────────────────────────────────────
+app.post("/api/diagrams/generate", asyncRoute(async (req, res) => {
+  const { title, subtitle, type, nodes, links, layers, theme, projectOnStage } = req.body || {};
+  if (!title) return fail(res, 400, "Title is required for diagram generation");
+  const diagram = await generateDiagram({
+    title,
+    subtitle,
+    type,
+    nodes,
+    links,
+    layers,
+    theme,
+    projectOnStage: Boolean(projectOnStage),
+  });
+  ok(res, diagram);
+}));
+
+app.get("/api/diagrams", (_req, res) => {
+  const dir = join(ROOT_DIR, "storage", "diagrams");
+  if (!existsSync(dir)) return ok(res, []);
+  const files = readdirSync(dir)
+    .filter((f) => f.endsWith(".html") || f.endsWith(".svg"))
+    .map((f) => ({
+      name: f,
+      url: `/storage/diagrams/${f}`,
+      isSvg: f.endsWith(".svg"),
+      isHtml: f.endsWith(".html"),
+    }));
+  ok(res, files);
+});
+
+// ── Autonomous Browser Agent (browser-use) ────────────────────────
+app.get("/api/browser/status", (_req, res) => {
+  ok(res, getBrowserAgentStatus());
+});
+
+app.post("/api/browser/task", asyncRoute(async (req, res) => {
+  const { prompt, url, browser, headless, durationSeconds, model } = req.body || {};
+  if (!prompt) return fail(res, 400, "Prompt is required for autonomous browser task");
+  const outcome = await runBrowserTask({
+    prompt,
+    url,
+    browser,
+    headless: Boolean(headless),
+    durationSeconds: durationSeconds ? Number(durationSeconds) : undefined,
+    model,
+  });
+  ok(res, outcome);
+}));
+
+// ── Scientific & Scholarly Intelligence (OpenAlex, arXiv, Europe PMC) ──
+app.get("/api/science/status", (_req, res) => {
+  ok(res, getScientificEngineStatus());
+});
+
+app.get("/api/science/search", asyncRoute(async (req, res) => {
+  const query = req.query.q || req.query.query;
+  if (!query) return fail(res, 400, "Query 'q' parameter is required");
+  const limit = Math.min(20, Math.max(1, Number(req.query.limit) || 5));
+  const database = req.query.db || req.query.database || "all";
+  const results = await searchScientificLiterature({ query, database, limit });
+  ok(res, results);
+}));
 
 // ── Tasks (HUD: "to do today") ───────────────────────────────────
 app.get("/api/tasks", (req, res) => {
@@ -442,9 +750,17 @@ app.post("/api/gmail/disconnect", (_req, res) => {
 });
 
 // ── Mail ─────────────────────────────────────────────────────────
-app.get("/api/mail", (req, res) => {
+app.get("/api/mail", asyncRoute(async (req, res) => {
+  // If Gmail is connected, auto-refresh recent messages in background if older than 2 minutes
+  if (gmailConfigured() && getGmailTokens()?.refresh_token) {
+    const last = Number(getSetting("last_mail_sync_at") || 0);
+    if (Date.now() - last > 120_000 || req.query.fresh === "1") {
+      setSetting("last_mail_sync_at", String(Date.now()));
+      syncMail({ days: 3, maxResults: 20 }).catch(() => {});
+    }
+  }
   ok(res, listMailMessages({ limit: Number(req.query.limit) || 20 }));
-});
+}));
 
 app.post("/api/mail/sync", asyncRoute(async (req, res) => {
   const days = Math.max(1, Number(req.body?.days) || 7);
@@ -488,7 +804,7 @@ app.post("/api/expenses", (req, res) => {
   res.status(201).json(insertTransaction({
     type,
     amount: Number(amount),
-    currency: req.body.currency || "INR",
+    currency: req.body.currency || "PKR",
     category: req.body.category || "Other",
     merchant: req.body.merchant ?? null,
     description: req.body.description ?? null,
@@ -497,50 +813,15 @@ app.post("/api/expenses", (req, res) => {
   }));
 });
 
-// ── Jarvis assistant ─────────────────────────────────────────────
-app.post("/api/assistant/chat", asyncRoute(async (req, res) => {
-  const text = String(req.body?.text || "").trim();
-  if (!text) return fail(res, 400, "text is required");
-  ok(res, await askAssistant(text, Array.isArray(req.body?.history) ? req.body.history : []));
+app.post("/api/expenses/upload-statement", asyncRoute(async (req, res) => {
+  const { data, filename } = req.body || {};
+  if (!data) return fail(res, 400, "Base64 encoded PDF data is required");
+  const buffer = Buffer.from(data, "base64");
+  const result = await parseBankStatementPdf(buffer);
+  ok(res, { ok: true, filename, ...result });
 }));
 
-// Streaming variant: emits newline-delimited JSON events so the client can show
-// an instant reply and an early "give me a moment" notice before slow tools run.
-app.post("/api/assistant/stream", async (req, res) => {
-  const text = String(req.body?.text || "").trim();
-  if (!text) return fail(res, 400, "text is required");
-  const history = Array.isArray(req.body?.history) ? req.body.history : [];
-  res.setHeader("Content-Type", "application/x-ndjson");
-  res.setHeader("Cache-Control", "no-cache");
-  res.setHeader("X-Accel-Buffering", "no");
-  try {
-    for await (const ev of askAssistantStream(text, history)) {
-      res.write(JSON.stringify(ev) + "\n");
-    }
-  } catch (err) {
-    res.write(JSON.stringify({ phase: "error", error: err.message }) + "\n");
-  }
-  res.end();
-});
-
-// Speech-to-text: browser sends base64 mic audio, OpenRouter returns the text.
-app.post("/api/assistant/transcribe", asyncRoute(async (req, res) => {
-  const { audio, format } = req.body || {};
-  if (!audio) return fail(res, 400, "audio (base64) is required");
-  const text = await transcribeAudio(String(audio), format || "webm", {});
-  ok(res, { text });
-}));
-
-// Text-to-speech via OpenRouter (used when tts_provider = openrouter).
-app.post("/api/assistant/speak", asyncRoute(async (req, res) => {
-  const text = String(req.body?.text || "").trim();
-  if (!text) return fail(res, 400, "text is required");
-  if (getAllSettings().tts_provider === "browser") {
-    return fail(res, 409, "TTS provider is set to browser");
-  }
-  const { b64, mime } = await textToSpeech(text, {});
-  ok(res, { audio: b64, mime });
-}));
+// Jarvis assistant routes have been extracted to routes/voice.js
 
 // ── Dashboard aggregate (single-request HUD hydration) ───────────
 app.get("/api/dashboard", (req, res) => {
@@ -567,12 +848,84 @@ app.get("/api/dashboard", (req, res) => {
   });
 });
 
+// ── Multi-User Face Biometrics & Security API ────────────────────
+app.get("/api/users", (_req, res) => {
+  ok(res, {
+    users: listUsers(),
+    total: getUserCount(),
+    activeOperator: getCurrentOperator(),
+    securityStatus: getAuthStatus(),
+  });
+});
+
+app.get("/api/users/descriptors", (_req, res) => {
+  ok(res, { descriptors: getAllFaceDescriptors() });
+});
+
+app.post("/api/users/enroll", (req, res) => {
+  const { name, role, face_descriptor, avatar_thumb, pin_code } = req.body || {};
+  if (!name || !name.trim()) return fail(res, 400, "User name is required");
+  if (!face_descriptor || !Array.isArray(face_descriptor) || face_descriptor.length !== 128) {
+    return fail(res, 400, "Valid 128-dimensional face descriptor array is required");
+  }
+  const user = createUser({
+    name: name.trim(),
+    role: role || "operator",
+    face_descriptor,
+    avatar_thumb: avatar_thumb || null,
+    pin_code: pin_code ? String(pin_code).trim() : null,
+  });
+  ok(res, { success: true, user });
+});
+
+app.delete("/api/users/:id", (req, res) => {
+  const existing = getUser(req.params.id);
+  if (!existing) return fail(res, 404, "User not found");
+  deleteUser(req.params.id);
+  ok(res, { success: true, deleted: req.params.id });
+});
+
+app.get("/api/auth/status", (_req, res) => {
+  ok(res, getAuthStatus());
+});
+
+app.post("/api/auth/face-login", (req, res) => {
+  const { userId, name } = req.body || {};
+  const result = unlockWithFace(userId || name);
+  if (!result.success) return fail(res, 404, result.error);
+  ok(res, result);
+});
+
+app.post("/api/auth/pin-login", (req, res) => {
+  const { pin } = req.body || {};
+  const result = unlockWithPin(pin);
+  if (!result.success) return fail(res, 401, result.error);
+  ok(res, result);
+});
+
+app.post("/api/auth/lock", (_req, res) => {
+  const result = lockSystem("User requested lock");
+  ok(res, result);
+});
+
+app.post("/api/auth/open-portal", (_req, res) => {
+  ok(res, triggerOpenBiometricPortal());
+});
+
+app.get("/admin", (_req, res) => res.sendFile(join(ROOT_DIR, "public", "admin.html")));
+
 // ── SPA fallback ─────────────────────────────────────────────────
 app.get("*", (_req, res) => res.sendFile(join(ROOT_DIR, "public", "index.html")));
 
-app.listen(config.port, "0.0.0.0", () => {
+
+const server = app.listen(config.port, "0.0.0.0", () => {
   console.log(`\n  Content Agent OS → http://localhost:${config.port}`);
   console.log(`  Services: ${Object.entries(serviceStatus()).map(([k, v]) => `${k} ${v ? "✓" : "✗"}`).join("  ")}`);
   startScheduler();
   startAutoSync();
+  ensureAgentMemoryRunning().catch((err) => {
+    console.warn(`[AgentMemory] Startup check skipped: ${err.message}`);
+  });
 });
+
+setupWebSocket(server);

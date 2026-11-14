@@ -1,19 +1,97 @@
 import Database from "./sqlite.js";
-import { mkdirSync } from "fs";
+import { mkdirSync, openSync, closeSync, writeFileSync, readFileSync, rmSync } from "fs";
+import { execSync } from "child_process";
 import { join } from "path";
 import { createHash } from "crypto";
 import { randomUUID } from "crypto";
+import net from "net";
 import { ROOT_DIR, config } from "./config.js";
 
 mkdirSync(join(ROOT_DIR, "data"), { recursive: true });
 mkdirSync(join(ROOT_DIR, "storage", "images"), { recursive: true });
 
-const db = new Database(join(ROOT_DIR, "data", "content-os.sqlite"));
+// ── Single-instance guard ─────────────────────────────────────────
+// node-sqlite3-wasm locks the DB with a `.lock` directory next to the
+// database file, so a second `npm start` while one instance is running
+// fails with `database is locked`. Check first instead of after opening.
+// The port probe catches instances that predate this guard (they don't
+// write a pid file); the pid marker catches same-version restarts.
+const pidPath = join(ROOT_DIR, "data", "content-os.pid");
+const dbFile = join(ROOT_DIR, "data", "content-os.sqlite");
+const lockDir = join(ROOT_DIR, "data", "content-os.sqlite.lock");
+const pidAlive = (pid) => {
+  try {
+    process.kill(pid, 0);
+    // On Windows, PIDs get recycled frequently by background tasks/antivirus/cmd.
+    // Verify the process is actually a node process.
+    if (process.platform === "win32") {
+      try {
+        const out = execSync(`tasklist /FI "PID eq ${pid}" /FO CSV /NH`, { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] });
+        return /node\.exe/i.test(out);
+      } catch {
+        return false;
+      }
+    }
+    return true;
+  }
+  catch (e) { return e.code === "EPERM"; } // exists but not ours to signal
+};
+const portInUse = (port) => new Promise((resolve) => {
+  const socket = net.connect({ port, host: "127.0.0.1" });
+  socket.once("connect", () => { socket.destroy(); resolve(true); });
+  socket.once("error", () => resolve(false));
+  socket.setTimeout(1500, () => { socket.destroy(); resolve(false); });
+});
+
+// Port is the strongest signal: any alive server has bound it. If it's
+// taken, refuse to start so the second boot never touches the DB at all.
+const portBusy = await portInUse(config.port);
+if (portBusy) {
+  console.error(
+    `\n  Content Agent OS is already running on port ${config.port}.\n` +
+    `  Only one instance may run (the SQLite database can't be shared).\n` +
+    `  - See http://localhost:${config.port} for the running app.\n` +
+    `  - Or kill its process and remove data/content-os.sqlite.lock, then start again.\n`
+  );
+  process.exit(1);
+}
+
+let instanceFd = null;
+for (let attempt = 0; attempt < 2 && instanceFd === null; attempt++) {
+  try {
+    instanceFd = openSync(pidPath, "wx");
+    writeFileSync(instanceFd, String(process.pid));
+  } catch (err) {
+    if (err.code !== "EEXIST") throw err;
+    let holder = -1;
+    try { holder = Number(readFileSync(pidPath, "utf8").trim()); } catch { /* unreadable */ }
+    if (holder > 0 && pidAlive(holder)) {
+      console.error(
+        `\n  Content Agent OS is already running (PID ${holder}).\n` +
+        `  Only one instance may use the database (data/content-os.sqlite).\n` +
+        `  - Or stop it and remove data/content-os.sqlite.lock, then start again.\n`
+      );
+      process.exit(1);
+    }
+    // Marker from a dead process (e.g. force-killed) — reclaim it.
+    rmSync(pidPath, { force: true });
+  }
+}
+const releaseLock = () => {
+  try { closeSync(instanceFd); } catch { /* already closed */ }
+  try { rmSync(pidPath, { force: true }); } catch { /* stale */ }
+};
+process.once("exit", releaseLock);
+for (const sig of ["SIGINT", "SIGTERM", "SIGBREAK"]) process.once(sig, () => process.exit(0));
+
+// The wasm VFS leaves `.lock` behind when a process is force-killed.
+// With the port now confirmed free, any remaining lock is ours to clear.
+try { rmSync(lockDir, { recursive: true, force: true }); } catch { /* not there */ }
+const db = new Database(dbFile);
 db.pragma("journal_mode = WAL");
 
 // node-sqlite3-wasm needs an explicit close to finalize statements; flush on exit.
 process.once("exit", () => { try { db.close(); } catch { /* shutting down */ } });
-for (const sig of ["SIGINT", "SIGTERM"]) process.once(sig, () => process.exit(0));
 
 db.exec(`
 CREATE TABLE IF NOT EXISTS app_settings (
@@ -171,7 +249,7 @@ CREATE TABLE IF NOT EXISTS transactions (
   message_id TEXT,                                -- source Gmail message (null for manual)
   type TEXT NOT NULL,                             -- income | expense
   amount REAL NOT NULL,
-  currency TEXT NOT NULL DEFAULT 'INR',
+  currency TEXT NOT NULL DEFAULT 'PKR',
   category TEXT NOT NULL DEFAULT 'Uncategorized',
   merchant TEXT,
   description TEXT,
@@ -201,6 +279,46 @@ CREATE INDEX IF NOT EXISTS idx_txn_occurred ON transactions(occurred_at DESC);
 CREATE INDEX IF NOT EXISTS idx_txn_type_cat ON transactions(type, category);
 CREATE INDEX IF NOT EXISTS idx_mail_date ON mail_messages(internal_date DESC);
 CREATE INDEX IF NOT EXISTS idx_tasks_due ON tasks(due_date, status);
+
+-- ── Agentic OS v2: Cooper long-term memory ──────────────────────
+CREATE TABLE IF NOT EXISTS cooper_memory (
+  id TEXT PRIMARY KEY,
+  text TEXT NOT NULL,                             -- original text stored
+  embedding TEXT,                                 -- JSON float array (nullable for keyword-only)
+  type TEXT NOT NULL DEFAULT 'chat',              -- chat | research | draft | note
+  source_id TEXT,                                 -- optional FK to article/draft/etc.
+  metadata TEXT NOT NULL DEFAULT '{}',            -- JSON: extra context (topic, tags, etc.)
+  created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_memory_type ON cooper_memory(type);
+CREATE INDEX IF NOT EXISTS idx_memory_created ON cooper_memory(created_at DESC);
+
+-- ── Agentic OS v2: Proactive briefings ──────────────────────────
+CREATE TABLE IF NOT EXISTS briefings (
+  id TEXT PRIMARY KEY,
+  type TEXT NOT NULL DEFAULT 'morning',           -- morning | evening | custom
+  text TEXT NOT NULL,                             -- briefing prose
+  audio_path TEXT,                                -- /storage/briefings/uuid.mp3
+  data TEXT NOT NULL DEFAULT '{}',                -- JSON snapshot: weather, tasks, news, expenses
+  played INTEGER NOT NULL DEFAULT 0,              -- 1 once the user has heard/seen it
+  created_at TEXT NOT NULL
+);
+
+-- ── Agentic OS: Multi-User Face Biometrics ───────────────────────
+CREATE TABLE IF NOT EXISTS users (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  role TEXT NOT NULL DEFAULT 'operator',          -- admin | operator | guest
+  face_descriptor TEXT NOT NULL,                  -- JSON array of 128 floats
+  avatar_thumb TEXT,                              -- base64 thumbnail
+  pin_code TEXT,                                  -- optional fallback PIN
+  enabled INTEGER NOT NULL DEFAULT 1,
+  created_at TEXT NOT NULL,
+  last_login_at TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_users_role ON users(role);
+CREATE INDEX IF NOT EXISTS idx_users_created ON users(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_briefings_date ON briefings(created_at DESC);
 `);
 
 // Lightweight migrations for DBs created before the v2 columns existed.
@@ -214,6 +332,13 @@ ensureColumn("scrape_sources", "cron_expression", "cron_expression TEXT");
 ensureColumn("scrape_sources", "research_depth", "research_depth TEXT NOT NULL DEFAULT 'sonar'");
 // idle | generating | ready | failed — drives the persistent "generating" UI.
 ensureColumn("post_drafts", "image_status", "image_status TEXT NOT NULL DEFAULT 'idle'");
+// Direct OAuth tokens and URNs for free platform APIs (LinkedIn, Twitter, IG, etc.)
+ensureColumn("connected_accounts", "access_token", "access_token TEXT");
+ensureColumn("connected_accounts", "refresh_token", "refresh_token TEXT");
+ensureColumn("connected_accounts", "token_expires_at", "token_expires_at INTEGER");
+ensureColumn("connected_accounts", "account_urn", "account_urn TEXT");
+ensureColumn("connected_accounts", "avatar_url", "avatar_url TEXT");
+ensureColumn("connected_accounts", "auth_type", "auth_type TEXT NOT NULL DEFAULT 'direct'");
 
 // ── Settings ─────────────────────────────────────────────────────
 const DEFAULT_SETTINGS = {
@@ -221,20 +346,20 @@ const DEFAULT_SETTINGS = {
   text_model: config.defaults.textModel,
   image_model: config.defaults.imageModel,
   timezone: config.defaults.timezone,
-  brand_voice: "Clear, confident, and concise. No hype, no emojis unless they add value.",
-  niche_keywords: JSON.stringify(["AI", "automation", "startups", "technology"]),
+  brand_voice: "Ihsan Ullah — AI/ML engineer based in Peshawar, Pakistan. Clear, confident, and concise. Grounded in real engineering: multi-agent systems, RAG pipelines, AI security. No hype, no invented claims.",
+  niche_keywords: JSON.stringify(["AI", "machine learning", "multi-agent systems", "RAG", "LLM", "AI security", "agentic AI", "automation", "LLM agents"]),
   // v2: research / voice / content-image / agentic assistant
   research_model: "perplexity/sonar",
   assistant_model: config.defaults.textModel,
   // Fast, conversational model for the assistant's instant replies. Tool-capable
   // and low-latency so plain chat feels immediate.
-  assistant_fast_model: "google/gemini-2.5-flash",
+  assistant_fast_model: config.geminiApiKey ? "gemini-3.5-flash-lite" : (config.groqApiKey ? "openai/gpt-oss-120b" : "google/gemini-2.0-flash-001"),
   // Dedicated image model (honors aspect_ratio via the OpenRouter image API).
   image_content_model: "google/gemini-2.5-flash-image",
-  transcribe_model: "openai/whisper-large-v3",
-  tts_provider: "openrouter",
-  tts_model: "hexgrad/kokoro-82m",
-  tts_voice: "bm_george",
+  transcribe_model: config.groqApiKey ? "whisper-large-v3" : "openai/whisper-large-v3",
+  tts_provider: (config.googleTtsApiKey || config.geminiApiKey) ? "google" : "openrouter",
+  tts_model: (config.googleTtsApiKey || config.geminiApiKey) ? "en-US-Journey-F" : "tts-1",
+  tts_voice: (config.googleTtsApiKey || config.geminiApiKey) ? "en-US-Journey-F" : "alloy",
   // Auto-update cadence (hours) for Gmail mail + expense polling. Minimum 1;
   // "0" disables the background poller.
   auto_update_hours: "6",
@@ -249,11 +374,80 @@ for (const [key, value] of Object.entries(DEFAULT_SETTINGS)) {
   if (!getSettingStmt.get(key)) setSettingStmt.run(key, value);
 }
 
+// Auto-repair stale / non-existent kokoro TTS settings
+const currentTts = getSettingStmt.get("tts_model")?.value;
+if (!currentTts || currentTts === "hexgrad/kokoro-82m") {
+  const isGoogle = Boolean(config.googleTtsApiKey || config.geminiApiKey);
+  setSettingStmt.run("tts_model", isGoogle ? "en-US-Journey-F" : "tts-1");
+  setSettingStmt.run("tts_provider", isGoogle ? "google" : "openrouter");
+}
+const currentVoice = getSettingStmt.get("tts_voice")?.value;
+if (!currentVoice || currentVoice === "bm_george") {
+  const isGoogle = Boolean(config.googleTtsApiKey || config.geminiApiKey);
+  setSettingStmt.run("tts_voice", isGoogle ? "en-US-Journey-F" : "alloy");
+}
+
 // Repair a previously-seeded invalid image model. `openai/gpt-image-2` is not a
 // real OpenRouter slug, so generation failed/ignored aspect ratio — move it to
 // a real dedicated image model that honors aspect_ratio.
 if (getSettingStmt.get("image_content_model")?.value === "openai/gpt-image-2") {
   setSettingStmt.run("image_content_model", DEFAULT_SETTINGS.image_content_model);
+}
+
+// Repair stale transcribe_model if using Groq API key but DB has OpenRouter model format
+if (config.groqApiKey && getSettingStmt.get("transcribe_model")?.value === "openai/whisper-large-v3") {
+  setSettingStmt.run("transcribe_model", "whisper-large-v3");
+}
+
+// Repair invalid gemini-2.5-flash fast model name
+if (getSettingStmt.get("assistant_fast_model")?.value === "google/gemini-2.5-flash") {
+  setSettingStmt.run("assistant_fast_model", DEFAULT_SETTINGS.assistant_fast_model);
+}
+
+if (config.geminiApiKey) {
+  const textMod = getSettingStmt.get("text_model")?.value;
+  if (!textMod || textMod.includes("openai/gpt-oss") || textMod.includes("llama-3") || textMod.includes("gemini-2.0") || textMod.includes("gemini-3.6") || textMod.includes("gemini-3.8") || textMod.includes("gemini-flash-latest")) {
+    setSettingStmt.run("text_model", "gemini-3.5-flash");
+  }
+  const asstMod = getSettingStmt.get("assistant_model")?.value;
+  if (!asstMod || asstMod.includes("openai/gpt-oss") || asstMod.includes("llama-3") || asstMod.includes("gemini-2.0") || asstMod.includes("gemini-3.6") || asstMod.includes("gemini-3.8") || asstMod.includes("gemini-flash-latest")) {
+    setSettingStmt.run("assistant_model", "gemini-3.5-flash");
+  }
+  const fastMod = getSettingStmt.get("assistant_fast_model")?.value;
+  if (!fastMod || fastMod.includes("openai/gpt-oss") || fastMod.includes("llama-3") || fastMod.includes("gemini-2.0") || fastMod.includes("gemini-3.6") || fastMod.includes("gemini-3.8") || fastMod.includes("gemini-flash-latest")) {
+    setSettingStmt.run("assistant_fast_model", "gemini-3.5-flash-lite");
+  }
+} else if (config.groqApiKey) {
+  const textMod = getSettingStmt.get("text_model")?.value;
+  if (!textMod || textMod.includes("anthropic/") || textMod.includes("openrouter") || textMod.includes("google/") || textMod.includes("llama-3.3") || textMod.includes("groq/")) {
+    setSettingStmt.run("text_model", "openai/gpt-oss-120b");
+  }
+  const asstMod = getSettingStmt.get("assistant_model")?.value;
+  if (!asstMod || asstMod.includes("anthropic/") || asstMod.includes("openrouter") || asstMod.includes("google/") || asstMod.includes("llama-3.3") || asstMod.includes("groq/")) {
+    setSettingStmt.run("assistant_model", "openai/gpt-oss-120b");
+  }
+  const fastMod = getSettingStmt.get("assistant_fast_model")?.value;
+  if (!fastMod || fastMod.includes("google/") || fastMod.includes("gemini") || fastMod.includes("llama-3.1") || fastMod.includes("groq/") || fastMod.includes("openai/gpt-oss-20b")) {
+    setSettingStmt.run("assistant_fast_model", "openai/gpt-oss-120b");
+  }
+} else {
+  // Using OpenRouter: Repair Groq-only slugs if present in DB
+  const fastMod = getSettingStmt.get("assistant_fast_model")?.value;
+  if (fastMod === "llama-3.1-8b-instant" || fastMod === "llama-3.3-70b-versatile" || fastMod?.startsWith("groq/") || fastMod?.startsWith("openai/gpt-oss")) {
+    setSettingStmt.run("assistant_fast_model", "google/gemini-2.0-flash-001");
+  }
+  const textMod = getSettingStmt.get("text_model")?.value;
+  if (textMod === "llama-3.3-70b-versatile" || textMod === "llama-3.1-8b-instant" || textMod?.startsWith("groq/") || textMod?.startsWith("openai/gpt-oss")) {
+    setSettingStmt.run("text_model", config.defaults.textModel || "google/gemini-2.0-flash-001");
+  }
+  const asstMod = getSettingStmt.get("assistant_model")?.value;
+  if (asstMod === "llama-3.3-70b-versatile" || asstMod === "llama-3.1-8b-instant" || asstMod?.startsWith("groq/") || asstMod?.startsWith("openai/gpt-oss")) {
+    setSettingStmt.run("assistant_model", config.defaults.textModel || "google/gemini-2.0-flash-001");
+  }
+  const txMod = getSettingStmt.get("transcribe_model")?.value;
+  if (txMod === "whisper-large-v3") {
+    setSettingStmt.run("transcribe_model", "openai/whisper-large-v3");
+  }
 }
 
 export function getSetting(key) {
@@ -605,21 +799,69 @@ export function listScheduledPosts(limit = 100) {
 }
 
 // ── Connected accounts ───────────────────────────────────────────
+export function getAccountById(id) {
+  return db.prepare("SELECT * FROM connected_accounts WHERE id = ?").get(id) ?? null;
+}
+
+export function getAccountByPlatform(platform) {
+  return db.prepare("SELECT * FROM connected_accounts WHERE platform = ? AND is_active = 1").get(platform) ?? null;
+}
+
 export function upsertAccount(row) {
+  const accountId = row.zernio_account_id || row.account_urn || row.id;
   const existing = db.prepare(
-    "SELECT id FROM connected_accounts WHERE zernio_account_id = ?"
-  ).get(row.zernio_account_id);
+    "SELECT id FROM connected_accounts WHERE zernio_account_id = ? OR account_urn = ?"
+  ).get(accountId, row.account_urn ?? accountId);
+
   if (existing) {
     db.prepare(
-      "UPDATE connected_accounts SET platform=?, username=?, display_name=?, is_active=1 WHERE id=?"
-    ).run(row.platform, row.username ?? null, row.display_name ?? null, existing.id);
+      `UPDATE connected_accounts 
+       SET platform = COALESCE(?, platform),
+           username = COALESCE(?, username),
+           display_name = COALESCE(?, display_name),
+           access_token = COALESCE(?, access_token),
+           refresh_token = COALESCE(?, refresh_token),
+           token_expires_at = COALESCE(?, token_expires_at),
+           account_urn = COALESCE(?, account_urn),
+           avatar_url = COALESCE(?, avatar_url),
+           auth_type = COALESCE(?, auth_type),
+           is_active = 1
+       WHERE id = ?`
+    ).run(
+      row.platform ?? null,
+      row.username ?? null,
+      row.display_name ?? null,
+      row.access_token ?? null,
+      row.refresh_token ?? null,
+      row.token_expires_at ?? null,
+      row.account_urn ?? null,
+      row.avatar_url ?? null,
+      row.auth_type ?? "direct",
+      existing.id
+    );
     return existing.id;
   }
-  const id = randomUUID();
+
+  const id = row.id || randomUUID();
   db.prepare(
-    `INSERT INTO connected_accounts (id, platform, zernio_account_id, username, display_name, is_active, connected_at)
-     VALUES (?, ?, ?, ?, ?, 1, ?)`
-  ).run(id, row.platform, row.zernio_account_id, row.username ?? null, row.display_name ?? null, new Date().toISOString());
+    `INSERT INTO connected_accounts (
+      id, platform, zernio_account_id, username, display_name, 
+      access_token, refresh_token, token_expires_at, account_urn, avatar_url, auth_type, is_active, connected_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?)`
+  ).run(
+    id,
+    row.platform,
+    accountId,
+    row.username ?? null,
+    row.display_name ?? null,
+    row.access_token ?? null,
+    row.refresh_token ?? null,
+    row.token_expires_at ?? null,
+    row.account_urn ?? null,
+    row.avatar_url ?? null,
+    row.auth_type ?? "direct",
+    new Date().toISOString()
+  );
   return id;
 }
 
@@ -722,7 +964,7 @@ export function insertTransaction(row) {
     message_id: row.message_id ?? null,
     type: row.type,
     amount: row.amount,
-    currency: row.currency ?? "INR",
+    currency: row.currency ?? "PKR",
     category: row.category ?? "Uncategorized",
     merchant: row.merchant ?? null,
     description: row.description ?? null,
@@ -826,4 +1068,148 @@ export function deleteTask(id) {
   db.prepare("DELETE FROM tasks WHERE id = ?").run(id);
 }
 
+// ── Cooper Memory ────────────────────────────────────────────────
+export function insertMemory(row) {
+  const id = randomUUID();
+  const now = new Date().toISOString();
+  db.prepare(
+    `INSERT INTO cooper_memory (id, text, embedding, type, source_id, metadata, created_at)
+     VALUES (@id, @text, @embedding, @type, @source_id, @metadata, @now)`
+  ).run({
+    id,
+    text: row.text,
+    embedding: row.embedding ? JSON.stringify(row.embedding) : null,
+    type: row.type || "chat",
+    source_id: row.source_id ?? null,
+    metadata: JSON.stringify(row.metadata || {}),
+    now,
+  });
+  return { id, created_at: now };
+}
+
+export function searchMemory({ query, type, limit = 10 } = {}) {
+  // Text-based keyword search (tokenized matching with vector cosine handled in memoryRouter)
+  const clauses = [];
+  const params = [];
+  if (query) {
+    const tokens = String(query).trim().split(/\s+/).filter((t) => t.length >= 3);
+    if (tokens.length > 1) {
+      const tokenClauses = tokens.map(() => "text LIKE ?");
+      clauses.push(`(${tokenClauses.join(" OR ")})`);
+      params.push(...tokens.map((t) => `%${t}%`));
+    } else {
+      clauses.push("text LIKE ?");
+      params.push(`%${query}%`);
+    }
+  }
+  if (type) { clauses.push("type = ?"); params.push(type); }
+  const where = clauses.length ? `WHERE ${clauses.join(" AND ")}` : "";
+  return db.prepare(
+    `SELECT * FROM cooper_memory ${where} ORDER BY created_at DESC LIMIT ?`
+  ).all(...params, limit);
+}
+
+export function listMemories({ type, limit = 50 } = {}) {
+  if (type) {
+    return db.prepare(
+      "SELECT * FROM cooper_memory WHERE type = ? ORDER BY created_at DESC LIMIT ?"
+    ).all(type, limit);
+  }
+  return db.prepare(
+    "SELECT * FROM cooper_memory ORDER BY created_at DESC LIMIT ?"
+  ).all(limit);
+}
+
+export function getMemoryCount() {
+  return db.prepare("SELECT COUNT(*) as count FROM cooper_memory").get()?.count ?? 0;
+}
+
+// ── Briefings ────────────────────────────────────────────────────
+export function insertBriefing(row) {
+  const id = randomUUID();
+  const now = new Date().toISOString();
+  db.prepare(
+    `INSERT INTO briefings (id, type, text, audio_path, data, created_at)
+     VALUES (@id, @type, @text, @audio_path, @data, @now)`
+  ).run({
+    id,
+    type: row.type || "morning",
+    text: row.text,
+    audio_path: row.audio_path ?? null,
+    data: JSON.stringify(row.data || {}),
+    now,
+  });
+  return { id, created_at: now };
+}
+
+export function getLatestBriefing(type = "morning") {
+  return db.prepare(
+    "SELECT * FROM briefings WHERE type = ? ORDER BY created_at DESC LIMIT 1"
+  ).get(type) ?? null;
+}
+
+export function markBriefingPlayed(id) {
+  db.prepare("UPDATE briefings SET played = 1 WHERE id = ?").run(id);
+}
+
+export function listBriefings({ limit = 10 } = {}) {
+  return db.prepare(
+    "SELECT * FROM briefings ORDER BY created_at DESC LIMIT ?"
+  ).all(limit);
+}
+
+// ── Multi-User Face Biometrics ───────────────────────────────────
+export function createUser({ name, role = "operator", face_descriptor, avatar_thumb = null, pin_code = null }) {
+  const id = randomUUID();
+  const now = new Date().toISOString();
+  db.prepare(
+    `INSERT INTO users (id, name, role, face_descriptor, avatar_thumb, pin_code, enabled, created_at)
+     VALUES (@id, @name, @role, @face_descriptor, @avatar_thumb, @pin_code, 1, @now)`
+  ).run({
+    id,
+    name,
+    role,
+    face_descriptor: typeof face_descriptor === "string" ? face_descriptor : JSON.stringify(face_descriptor),
+    avatar_thumb,
+    pin_code,
+    now,
+  });
+  return { id, name, role, created_at: now };
+}
+
+export function listUsers() {
+  return db.prepare(
+    "SELECT id, name, role, avatar_thumb, pin_code, enabled, created_at, last_login_at FROM users WHERE enabled = 1 ORDER BY created_at ASC"
+  ).all();
+}
+
+export function getUser(id) {
+  return db.prepare("SELECT * FROM users WHERE id = ?").get(id) ?? null;
+}
+
+export function deleteUser(id) {
+  return db.prepare("DELETE FROM users WHERE id = ?").run(id);
+}
+
+export function updateUserLogin(id) {
+  const now = new Date().toISOString();
+  db.prepare("UPDATE users SET last_login_at = ? WHERE id = ?").run(now, id);
+  return { id, last_login_at: now };
+}
+
+export function getUserCount() {
+  return db.prepare("SELECT COUNT(*) as count FROM users WHERE enabled = 1").get()?.count ?? 0;
+}
+
+export function getAllFaceDescriptors() {
+  const rows = db.prepare("SELECT id, name, role, face_descriptor FROM users WHERE enabled = 1").all();
+  return rows.map((r) => ({
+    id: r.id,
+    name: r.name,
+    role: r.role,
+    descriptor: JSON.parse(r.face_descriptor || "[]"),
+  }));
+}
+
 export default db;
+
